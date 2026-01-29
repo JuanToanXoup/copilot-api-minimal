@@ -282,7 +282,12 @@ object CopilotChatToolWindowUtil {
                 // Press Enter on the JList to confirm the selection
                 pressEnterOnComponent(popupList)
 
-                LOG.info("simulateComboBoxSelection: Pressed Enter on JList")
+                Thread.sleep(100)
+
+                // Press Enter again to fully commit
+                pressEnterOnComponent(popupList)
+
+                LOG.info("simulateComboBoxSelection: Pressed Enter twice on JList")
                 return true
             }
 
