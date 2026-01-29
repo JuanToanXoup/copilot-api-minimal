@@ -1,5 +1,7 @@
 package com.citi.copilotautomation.bridge
 
+import com.citi.copilotautomation.core.ComponentFinder
+import com.citi.copilotautomation.core.ReflectionUtil
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.impl.EditorComponentImpl
@@ -9,42 +11,11 @@ import java.awt.Container
 import javax.swing.JTextArea
 import javax.swing.text.JTextComponent
 
+/**
+ * Utility for finding specific UI components in the Copilot chat interface.
+ */
 object UIFinderUtil {
     private val LOG = Logger.getInstance(UIFinderUtil::class.java)
-
-    /**
-     * Count visible Stop action buttons to detect if Copilot is generating.
-     * Returns 0 if components not found (logs warning for debugging).
-     */
-    fun countVisibleStopActionButtons(rootComponent: Component?): Int {
-        if (rootComponent == null) {
-            LOG.debug("countVisibleStopActionButtons: rootComponent is null")
-            return 0
-        }
-
-        val allActionButtons = mutableListOf<Component>()
-        CopilotChatToolWindowUtil.findComponentsByClassName(
-            rootComponent,
-            CopilotClassNames.KEYBOARD_ACCESSIBLE_ACTION_BUTTON,
-            allActionButtons
-        )
-
-        if (allActionButtons.isEmpty()) {
-            LOG.debug("countVisibleStopActionButtons: No action buttons found")
-            return 0
-        }
-
-        var visibleStopActionCount = 0
-        allActionButtons.forEach { button ->
-            val action = CopilotChatToolWindowUtil.safeInvokeMethod(button, "getAction")
-            if (action != null && action.javaClass.name == CopilotClassNames.STOP_ACTION) {
-                if (button.isShowing) {
-                    visibleStopActionCount++
-                }
-            }
-        }
-        return visibleStopActionCount
-    }
 
     /**
      * Result of finding chat input - contains both the component and the editor if applicable.
@@ -57,6 +28,30 @@ object UIFinderUtil {
         enum class InputType { TEXT_AREA, TEXT_COMPONENT, EDITOR }
     }
 
+    // =========================================================================
+    // Stop Button Detection (for generation monitoring)
+    // =========================================================================
+
+    /**
+     * Count visible Stop action buttons to detect if Copilot is generating.
+     */
+    fun countVisibleStopActionButtons(rootComponent: Component?): Int {
+        if (rootComponent == null) {
+            LOG.debug("countVisibleStopActionButtons: rootComponent is null")
+            return 0
+        }
+
+        return ComponentFinder.countVisibleWithAction(
+            rootComponent,
+            CopilotClassNames.KEYBOARD_ACCESSIBLE_ACTION_BUTTON,
+            CopilotClassNames.STOP_ACTION
+        )
+    }
+
+    // =========================================================================
+    // Chat Input Finding
+    // =========================================================================
+
     /**
      * Find the chat input component. Supports:
      * - CopilotAgentInputTextArea (the actual Copilot chat input)
@@ -67,44 +62,41 @@ object UIFinderUtil {
         if (comp == null) return null
 
         // FIRST: Look specifically for the Copilot input text area
-        val copilotInput = CopilotChatToolWindowUtil.findFirstComponentByClassName(
-            comp,
-            CopilotClassNames.AGENT_INPUT_TEXT_AREA
-        )
+        val copilotInput = ComponentFinder.findFirstByClassName(comp, CopilotClassNames.AGENT_INPUT_TEXT_AREA)
         if (copilotInput != null) {
             LOG.info("findChatInputEx: Found CopilotAgentInputTextArea")
-            // It's likely a JTextComponent subclass
+
+            // Check if it's a JTextComponent
             if (copilotInput is JTextComponent) {
                 return ChatInputResult(copilotInput, null, ChatInputResult.InputType.TEXT_COMPONENT)
             }
+
             // Try to find editor inside it
             if (copilotInput is Container) {
-                val editorResult = findEditorInContainer(copilotInput)
-                if (editorResult != null) return editorResult
+                findEditorInContainer(copilotInput)?.let { return it }
             }
+
             // Return as generic text component
             return ChatInputResult(copilotInput, null, ChatInputResult.InputType.TEXT_COMPONENT)
         }
 
         // SECOND: Look for IntelliJ Editor component
-        if (comp is EditorComponentImpl) {
+        val editorComponent = ComponentFinder.findFirstByType<EditorComponentImpl>(comp)
+        if (editorComponent != null) {
             LOG.debug("findChatInputEx: Found EditorComponentImpl")
-            return ChatInputResult(comp, comp.editor, ChatInputResult.InputType.EDITOR)
+            return ChatInputResult(editorComponent, editorComponent.editor, ChatInputResult.InputType.EDITOR)
         }
 
         // THIRD: Check for JTextArea (but NOT HtmlContentComponent which is for display)
-        if (comp is JTextArea && !comp.javaClass.name.contains("HtmlContent")) {
-            LOG.debug("findChatInputEx: Found JTextArea: ${comp.javaClass.name}")
-            return ChatInputResult(comp, null, ChatInputResult.InputType.TEXT_AREA)
+        val textArea = ComponentFinder.findFirstByPredicate(comp) { c ->
+            c is JTextArea && !c.javaClass.name.contains("HtmlContent")
+        }
+        if (textArea != null) {
+            LOG.debug("findChatInputEx: Found JTextArea: ${textArea.javaClass.name}")
+            return ChatInputResult(textArea, null, ChatInputResult.InputType.TEXT_AREA)
         }
 
-        // Recurse into containers
-        if (comp is Container) {
-            for (child in comp.components) {
-                val result = findChatInputEx(child)
-                if (result != null) return result
-            }
-        }
+        LOG.debug("findChatInputEx: No chat input found")
         return null
     }
 
@@ -112,56 +104,27 @@ object UIFinderUtil {
      * Find an Editor inside a container.
      */
     private fun findEditorInContainer(container: Container): ChatInputResult? {
-        for (child in container.components) {
-            if (child is EditorComponentImpl) {
-                return ChatInputResult(child, child.editor, ChatInputResult.InputType.EDITOR)
-            }
-            if (child is Container) {
-                val result = findEditorInContainer(child)
-                if (result != null) return result
-            }
+        val editor = ComponentFinder.findFirstByType<EditorComponentImpl>(container)
+        if (editor != null) {
+            return ChatInputResult(editor, editor.editor, ChatInputResult.InputType.EDITOR)
         }
         return null
     }
 
-    /**
-     * Find the first JTextArea (chat input) in the component tree.
-     * @deprecated Use findChatInputEx instead for better component support.
-     */
-    fun findChatInput(comp: Component?, stopOnFirst: Boolean = true): Component? {
-        val result = findChatInputEx(comp)
-        return result?.component
-    }
-
-    /**
-     * Find all Editor components in the tree (for debugging).
-     */
-    fun findAllEditors(comp: Component?, result: MutableList<Editor>) {
-        if (comp == null) return
-        if (comp is EditorComponentImpl) {
-            result.add(comp.editor)
-        }
-        if (comp is Container) {
-            for (child in comp.components) {
-                findAllEditors(child, result)
-            }
-        }
-    }
+    // =========================================================================
+    // Scroll Pane Finding
+    // =========================================================================
 
     /**
      * Find the first JBScrollPane in the component tree.
      */
     fun findChatScrollPane(comp: Component?): Component? {
-        if (comp == null) return null
-        if (comp is JBScrollPane) return comp
-        if (comp is Container) {
-            for (child in comp.components) {
-                val result = findChatScrollPane(child)
-                if (result != null) return result
-            }
-        }
-        return null
+        return ComponentFinder.findFirstByType<JBScrollPane>(comp)
     }
+
+    // =========================================================================
+    // Message/Response Extraction
+    // =========================================================================
 
     /**
      * Find all message/response components (Copilot responses).
@@ -170,20 +133,8 @@ object UIFinderUtil {
     fun findMarkdownPanes(comp: Component?, result: MutableList<Component>) {
         if (comp == null) return
 
-        val className = comp.javaClass.name
-
-        // Check for any of the known message component types
-        if (className == CopilotClassNames.MARKDOWN_PANE ||
-            className == CopilotClassNames.AGENT_MESSAGE_COMPONENT ||
-            className == CopilotClassNames.MESSAGE_CONTENT_PANEL ||
-            className == CopilotClassNames.HTML_CONTENT_COMPONENT) {
-            result.add(comp)
-        }
-
-        if (comp is Container) {
-            for (child in comp.components) {
-                findMarkdownPanes(child, result)
-            }
+        for (className in CopilotClassNames.MESSAGE_COMPONENTS) {
+            result.addAll(ComponentFinder.findByClassName(comp, className))
         }
     }
 
@@ -194,96 +145,23 @@ object UIFinderUtil {
         if (comp == null) return emptyList()
 
         val messages = mutableListOf<String>()
-        findMessageTextsRecursive(comp, messages)
+
+        for (className in CopilotClassNames.MESSAGE_COMPONENTS) {
+            val components = ComponentFinder.findByClassName(comp, className)
+            for (component in components) {
+                val text = ReflectionUtil.extractText(component)
+                if (text != null && text.isNotBlank()) {
+                    messages.add(text)
+                }
+            }
+        }
+
         return messages
     }
 
-    private fun findMessageTextsRecursive(comp: Component?, messages: MutableList<String>) {
-        if (comp == null) return
-
-        val className = comp.javaClass.name
-
-        // Try to extract text from known message components
-        when (className) {
-            CopilotClassNames.HTML_CONTENT_COMPONENT -> {
-                // HtmlContentComponent likely has getText() method
-                val text = extractTextFromComponent(comp)
-                if (text != null && text.isNotBlank()) {
-                    messages.add(text)
-                }
-            }
-            CopilotClassNames.AGENT_MESSAGE_COMPONENT,
-            CopilotClassNames.MESSAGE_CONTENT_PANEL -> {
-                // These might contain the text or have child components with text
-                val text = extractTextFromComponent(comp)
-                if (text != null && text.isNotBlank()) {
-                    messages.add(text)
-                }
-            }
-            CopilotClassNames.MARKDOWN_PANE -> {
-                // Legacy: try to get 'markdown' field
-                val text = extractFieldValue(comp, "markdown")
-                if (text != null && text.isNotBlank()) {
-                    messages.add(text)
-                }
-            }
-        }
-
-        if (comp is Container) {
-            for (child in comp.components) {
-                findMessageTextsRecursive(child, messages)
-            }
-        }
-    }
-
-    /**
-     * Try to extract text from a component using various methods.
-     */
-    private fun extractTextFromComponent(comp: Component): String? {
-        // Try getText() method
-        try {
-            val getText = comp.javaClass.getMethod("getText")
-            val result = getText.invoke(comp)
-            if (result is String && result.isNotBlank()) {
-                return result
-            }
-        } catch (e: Exception) {
-            // Method doesn't exist or failed
-        }
-
-        // Try text property
-        val textField = extractFieldValue(comp, "text")
-        if (textField != null && textField.isNotBlank()) {
-            return textField
-        }
-
-        // Try markdown property
-        val markdownField = extractFieldValue(comp, "markdown")
-        if (markdownField != null && markdownField.isNotBlank()) {
-            return markdownField
-        }
-
-        // Try content property
-        val contentField = extractFieldValue(comp, "content")
-        if (contentField != null && contentField.isNotBlank()) {
-            return contentField
-        }
-
-        return null
-    }
-
-    /**
-     * Extract a string field value from a component using reflection.
-     */
-    private fun extractFieldValue(comp: Component, fieldName: String): String? {
-        return try {
-            val field = comp.javaClass.getDeclaredField(fieldName)
-            field.isAccessible = true
-            field.get(comp) as? String
-        } catch (e: Exception) {
-            null
-        }
-    }
+    // =========================================================================
+    // Send Button Finding
+    // =========================================================================
 
     /**
      * Find the Send button in the Copilot chat UI.
@@ -293,19 +171,29 @@ object UIFinderUtil {
             LOG.debug("findSendButton: component is null")
             return null
         }
-        val buttons = mutableListOf<Component>()
-        CopilotChatToolWindowUtil.findComponentsByClassName(
+
+        val button = ComponentFinder.findButtonWithAction(
             comp,
             CopilotClassNames.KEYBOARD_ACCESSIBLE_ACTION_BUTTON,
-            buttons
+            CopilotClassNames.SEND_MESSAGE_ACTION,
+            mustBeVisible = false
         )
-        for (button in buttons) {
-            val action = CopilotChatToolWindowUtil.safeInvokeMethod(button, "getAction")
-            if (action?.javaClass?.name == CopilotClassNames.SEND_MESSAGE_ACTION) {
-                return button
-            }
+
+        if (button == null) {
+            LOG.debug("findSendButton: No send button found")
         }
-        LOG.debug("findSendButton: No send button found among ${buttons.size} buttons")
-        return null
+
+        return button
+    }
+
+    // =========================================================================
+    // Editor Finding
+    // =========================================================================
+
+    /**
+     * Find all Editor components in the tree.
+     */
+    fun findAllEditors(comp: Component?): List<Editor> {
+        return ComponentFinder.findByType<EditorComponentImpl>(comp).map { it.editor }
     }
 }

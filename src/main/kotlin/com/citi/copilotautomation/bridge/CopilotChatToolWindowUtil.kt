@@ -1,92 +1,27 @@
 package com.citi.copilotautomation.bridge
 
+import com.citi.copilotautomation.core.ComponentFinder
+import com.citi.copilotautomation.core.ReflectionUtil
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.WindowManager
 import java.awt.Component
-import java.awt.Container
 
+/**
+ * Utility for interacting with the Copilot Chat tool window UI.
+ * Handles mode switching, model selection, and session management.
+ */
 object CopilotChatToolWindowUtil {
     private val LOG = Logger.getInstance(CopilotChatToolWindowUtil::class.java)
-
-    // =========================================================================
-    // Component Search Utilities
-    // =========================================================================
-
-    /**
-     * Find all components matching a class name in the component tree.
-     *
-     * @param comp Root component to search from
-     * @param className Fully qualified class name to match
-     * @param result List to collect matching components
-     * @param stopOnFirst If true, stops after finding the first match (optimization)
-     */
-    fun findComponentsByClassName(
-        comp: Component?,
-        className: String,
-        result: MutableList<Component>,
-        stopOnFirst: Boolean = false
-    ) {
-        if (comp == null) return
-        if (stopOnFirst && result.isNotEmpty()) return
-
-        if (comp.javaClass.name == className) {
-            result.add(comp)
-            if (stopOnFirst) return
-        }
-
-        if (comp is Container) {
-            for (child in comp.components) {
-                findComponentsByClassName(child, className, result, stopOnFirst)
-                if (stopOnFirst && result.isNotEmpty()) return
-            }
-        }
-    }
-
-    /**
-     * Find the first component matching a class name.
-     * More efficient than findComponentsByClassName when only one match is needed.
-     */
-    fun findFirstComponentByClassName(comp: Component?, className: String): Component? {
-        if (comp == null) return null
-        if (comp.javaClass.name == className) return comp
-
-        if (comp is Container) {
-            for (child in comp.components) {
-                val result = findFirstComponentByClassName(child, className)
-                if (result != null) return result
-            }
-        }
-        return null
-    }
-
-    /**
-     * Safely invoke a no-arg method on an object using reflection.
-     * @return The method result, or null if invocation failed
-     */
-    fun safeInvokeMethod(target: Any, methodName: String): Any? {
-        return try {
-            val method = target.javaClass.getMethod(methodName)
-            method.invoke(target)
-        } catch (e: Exception) {
-            LOG.debug("safeInvokeMethod: Failed to invoke $methodName: ${e.message}")
-            null
-        }
-    }
 
     // =========================================================================
     // Window/Panel Access
     // =========================================================================
 
     private fun getRootComponent(frame: Any): Component? {
-        return try {
-            val method = frame.javaClass.getMethod("getComponent")
-            method.invoke(frame) as? Component
-        } catch (e: Exception) {
-            LOG.debug("getRootComponent: Falling back to direct cast")
-            frame as? Component
-        }
+        return ReflectionUtil.invokeMethod(frame, "getComponent") as? Component
+            ?: frame as? Component
     }
 
     private fun getCopilotChatPanel(project: Project): Component? {
@@ -102,11 +37,7 @@ object CopilotChatToolWindowUtil {
             return null
         }
 
-        val panel = findFirstComponentByClassName(root, CopilotClassNames.CHAT_TOOL_WINDOW_CONTAINER)
-        if (panel == null) {
-            LOG.debug("getCopilotChatPanel: Chat panel not found (class: ${CopilotClassNames.CHAT_TOOL_WINDOW_CONTAINER})")
-        }
-        return panel
+        return ComponentFinder.findFirstByClassName(root, CopilotClassNames.CHAT_TOOL_WINDOW_CONTAINER)
     }
 
     private fun activateCopilotChatToolWindow(project: Project): Boolean {
@@ -122,17 +53,20 @@ object CopilotChatToolWindowUtil {
         return true
     }
 
+    /**
+     * Get the tool window component for external use.
+     */
+    fun getToolWindowComponent(project: Project): Component? {
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(CopilotClassNames.TOOL_WINDOW_ID)
+        return toolWindow?.component
+    }
+
     // =========================================================================
     // Generic Action Button Helper
     // =========================================================================
 
     /**
      * Find and click a button with a specific action class.
-     *
-     * @param project The current project
-     * @param actionClassName The fully qualified action class name to match
-     * @param actionDescription Description for logging purposes
-     * @return true if button was found and clicked, false otherwise
      */
     private fun clickActionButton(project: Project, actionClassName: String, actionDescription: String): Boolean {
         if (!activateCopilotChatToolWindow(project)) {
@@ -146,21 +80,19 @@ object CopilotChatToolWindowUtil {
             return false
         }
 
-        val buttons = mutableListOf<Component>()
-        findComponentsByClassName(chatPanel, CopilotClassNames.KEYBOARD_ACCESSIBLE_ACTION_BUTTON, buttons)
+        val button = ComponentFinder.findButtonWithAction(
+            chatPanel,
+            CopilotClassNames.KEYBOARD_ACCESSIBLE_ACTION_BUTTON,
+            actionClassName
+        )
 
-        for (button in buttons) {
-            val action = safeInvokeMethod(button, "getAction") ?: continue
-            if (action.javaClass.name == actionClassName && button.isShowing) {
-                return try {
-                    button.javaClass.getMethod("click").invoke(button)
-                    LOG.debug("clickActionButton($actionDescription): Successfully clicked button")
-                    true
-                } catch (e: Exception) {
-                    LOG.error("clickActionButton($actionDescription): Failed to invoke click(): ${e.message}")
-                    false
-                }
+        if (button != null) {
+            if (ReflectionUtil.click(button)) {
+                LOG.debug("clickActionButton($actionDescription): Successfully clicked button")
+                return true
             }
+            LOG.error("clickActionButton($actionDescription): Failed to invoke click()")
+            return false
         }
 
         LOG.warn("clickActionButton($actionDescription): No visible button found with action $actionClassName")
@@ -189,12 +121,8 @@ object CopilotChatToolWindowUtil {
 
     /**
      * Select a chat mode by name from the ChatModeComboBox.
-     *
-     * @param project The current project
-     * @param modeName The mode name to select (e.g., "Ask", "Agent")
-     * @return true if mode was found and selected, false otherwise
      */
-    private fun selectChatModeByName(project: Project, modeName: String): Boolean {
+    private fun selectChatModeByName(project: Project, modeName: String, fallbackIndex: Int): Boolean {
         if (!activateCopilotChatToolWindow(project)) {
             LOG.warn("selectChatModeByName: Failed to activate tool window")
             return false
@@ -206,38 +134,28 @@ object CopilotChatToolWindowUtil {
             return false
         }
 
-        val comboBox = findFirstComponentByClassName(chatPanel, CopilotClassNames.CHAT_MODE_COMBO_BOX)
+        val comboBox = ComponentFinder.findFirstByClassName(chatPanel, CopilotClassNames.CHAT_MODE_COMBO_BOX)
         if (comboBox == null) {
             LOG.warn("selectChatModeByName: ChatModeComboBox not found")
             return false
         }
 
         // Try to select by name first
-        val selectedByName = selectComboBoxItemByName(comboBox, modeName)
-        if (selectedByName) {
+        if (selectComboBoxItemByName(comboBox, modeName)) {
             LOG.debug("selectChatModeByName: Selected mode '$modeName' by name")
             return true
         }
 
-        // Fallback to index-based selection
-        val index = when (modeName) {
-            CopilotClassNames.ChatModes.ASK -> 0
-            CopilotClassNames.ChatModes.AGENT -> 1
-            else -> {
-                LOG.warn("selectChatModeByName: Unknown mode '$modeName'")
-                return false
-            }
-        }
-
-        return selectComboBoxByIndex(comboBox, index, "ChatModeComboBox")
+        // Fallback to index
+        return selectComboBoxByIndex(comboBox, fallbackIndex, "ChatModeComboBox")
     }
 
     fun setAskChatMode(project: Project): Boolean {
-        return selectChatModeByName(project, CopilotClassNames.ChatModes.ASK)
+        return selectChatModeByName(project, CopilotClassNames.ChatModes.ASK, CopilotClassNames.ChatModes.ASK_INDEX)
     }
 
     fun setAgentChatMode(project: Project): Boolean {
-        return selectChatModeByName(project, CopilotClassNames.ChatModes.AGENT)
+        return selectChatModeByName(project, CopilotClassNames.ChatModes.AGENT, CopilotClassNames.ChatModes.AGENT_INDEX)
     }
 
     // =========================================================================
@@ -246,11 +164,6 @@ object CopilotChatToolWindowUtil {
 
     /**
      * Select a model by name from the ModelPickPanel.
-     *
-     * @param project The current project
-     * @param modelNames List of model names to try (in order of preference)
-     * @param fallbackIndex Index to use if name matching fails
-     * @return true if model was selected, false otherwise
      */
     private fun selectModelByName(project: Project, modelNames: List<String>, fallbackIndex: Int): Boolean {
         if (!activateCopilotChatToolWindow(project)) {
@@ -264,13 +177,13 @@ object CopilotChatToolWindowUtil {
             return false
         }
 
-        val modelPanel = findFirstComponentByClassName(chatPanel, CopilotClassNames.MODEL_PICK_PANEL)
+        val modelPanel = ComponentFinder.findFirstByClassName(chatPanel, CopilotClassNames.MODEL_PICK_PANEL)
         if (modelPanel == null) {
             LOG.warn("selectModelByName: ModelPickPanel not found")
             return false
         }
 
-        // Try to select by name first (try each name variant)
+        // Try each name variant
         for (modelName in modelNames) {
             if (selectComboBoxItemByName(modelPanel, modelName)) {
                 LOG.debug("selectModelByName: Selected model '$modelName' by name")
@@ -278,32 +191,32 @@ object CopilotChatToolWindowUtil {
             }
         }
 
-        // Fallback to index-based selection
-        LOG.debug("selectModelByName: Name matching failed for ${modelNames}, falling back to index $fallbackIndex")
+        // Fallback to index
+        LOG.debug("selectModelByName: Name matching failed, falling back to index $fallbackIndex")
         return selectComboBoxByIndex(modelPanel, fallbackIndex, "ModelPickPanel")
     }
 
     fun setModelClaudeSonnet4(project: Project): Boolean {
         return selectModelByName(
             project,
-            listOf(CopilotClassNames.ModelNames.CLAUDE_SONNET_4, CopilotClassNames.ModelNames.CLAUDE_SONNET),
-            fallbackIndex = 1
+            CopilotClassNames.ModelNames.CLAUDE_VARIANTS,
+            CopilotClassNames.ModelIndices.CLAUDE_SONNET_4
         )
     }
 
     fun setModelGeminiPro(project: Project): Boolean {
         return selectModelByName(
             project,
-            listOf(CopilotClassNames.ModelNames.GEMINI_PRO, CopilotClassNames.ModelNames.GEMINI_PRO_ALT),
-            fallbackIndex = 2
+            CopilotClassNames.ModelNames.GEMINI_VARIANTS,
+            CopilotClassNames.ModelIndices.GEMINI_PRO
         )
     }
 
     fun setModelGPT(project: Project): Boolean {
         return selectModelByName(
             project,
-            listOf(CopilotClassNames.ModelNames.GPT_4O, CopilotClassNames.ModelNames.GPT_4_1),
-            fallbackIndex = 4
+            CopilotClassNames.ModelNames.GPT_VARIANTS,
+            CopilotClassNames.ModelIndices.GPT
         )
     }
 
@@ -313,54 +226,32 @@ object CopilotChatToolWindowUtil {
 
     /**
      * Try to select a combo box item by matching the item's display name.
-     *
-     * @param comboBox The combo box component
-     * @param itemName The name to search for (case-insensitive contains match)
-     * @return true if item was found and selected, false otherwise
      */
     private fun selectComboBoxItemByName(comboBox: Component, itemName: String): Boolean {
-        return try {
-            // Get item count
-            val getItemCount = comboBox.javaClass.getMethod("getItemCount")
-            val itemCount = getItemCount.invoke(comboBox) as? Int ?: return false
+        val itemCount = ReflectionUtil.getItemCount(comboBox)
+        if (itemCount < 0) return false
 
-            // Get item at index method
-            val getItemAt = comboBox.javaClass.getMethod("getItemAt", Int::class.java)
+        for (i in 0 until itemCount) {
+            val item = ReflectionUtil.getItemAt(comboBox, i) ?: continue
+            val itemString = item.toString()
 
-            for (i in 0 until itemCount) {
-                val item = getItemAt.invoke(comboBox, i) ?: continue
-                val itemString = item.toString()
-
-                if (itemString.contains(itemName, ignoreCase = true)) {
-                    val setSelectedIndex = comboBox.javaClass.getMethod("setSelectedIndex", Int::class.java)
-                    setSelectedIndex.invoke(comboBox, i)
-                    return true
-                }
+            if (itemString.contains(itemName, ignoreCase = true)) {
+                return ReflectionUtil.setSelectedIndex(comboBox, i)
             }
-            false
-        } catch (e: Exception) {
-            LOG.debug("selectComboBoxItemByName: Failed to select by name '$itemName': ${e.message}")
-            false
         }
+        return false
     }
 
     /**
      * Select a combo box item by index.
-     *
-     * @param comboBox The combo box component
-     * @param index The index to select
-     * @param componentName Name for logging purposes
-     * @return true if selection was successful, false otherwise
      */
     private fun selectComboBoxByIndex(comboBox: Component, index: Int, componentName: String): Boolean {
-        return try {
-            comboBox.javaClass.getMethod("setSelectedIndex", Int::class.java).invoke(comboBox, index)
+        if (ReflectionUtil.setSelectedIndex(comboBox, index)) {
             LOG.debug("selectComboBoxByIndex: Set $componentName to index $index")
-            true
-        } catch (e: Exception) {
-            LOG.warn("selectComboBoxByIndex: Failed to set index $index on $componentName: ${e.message}")
-            false
+            return true
         }
+        LOG.warn("selectComboBoxByIndex: Failed to set index $index on $componentName")
+        return false
     }
 
     // =========================================================================
@@ -369,7 +260,6 @@ object CopilotChatToolWindowUtil {
 
     /**
      * Toggle off the current file context.
-     * @return true if toggle was found and set, false otherwise
      */
     fun toggleOffCurrentFileContext(project: Project): Boolean {
         if (!activateCopilotChatToolWindow(project)) {
@@ -383,7 +273,7 @@ object CopilotChatToolWindowUtil {
             return false
         }
 
-        val toggle = findFirstComponentByClassName(chatPanel, CopilotClassNames.ON_OFF_BUTTON)
+        val toggle = ComponentFinder.findFirstByClassName(chatPanel, CopilotClassNames.ON_OFF_BUTTON)
         if (toggle == null) {
             LOG.warn("toggleOffCurrentFileContext: OnOffButton not found")
             return false
@@ -397,5 +287,36 @@ object CopilotChatToolWindowUtil {
             LOG.warn("toggleOffCurrentFileContext: Failed to toggle: ${e.message}")
             false
         }
+    }
+
+    // =========================================================================
+    // Legacy Compatibility (for external callers)
+    // =========================================================================
+
+    /**
+     * @deprecated Use ComponentFinder.findByClassName instead
+     */
+    fun findComponentsByClassName(
+        comp: Component?,
+        className: String,
+        result: MutableList<Component>,
+        stopOnFirst: Boolean = false
+    ) {
+        if (comp == null) return
+        result.addAll(ComponentFinder.findByClassName(comp, className, stopOnFirst))
+    }
+
+    /**
+     * @deprecated Use ComponentFinder.findFirstByClassName instead
+     */
+    fun findFirstComponentByClassName(comp: Component?, className: String): Component? {
+        return ComponentFinder.findFirstByClassName(comp, className)
+    }
+
+    /**
+     * @deprecated Use ReflectionUtil.invokeMethod instead
+     */
+    fun safeInvokeMethod(target: Any, methodName: String): Any? {
+        return ReflectionUtil.invokeMethod(target, methodName)
     }
 }

@@ -6,6 +6,9 @@ import com.citi.copilotautomation.bridge.CopilotClassNames
 import com.citi.copilotautomation.bridge.UIDiagnostics
 import com.citi.copilotautomation.bridge.UIFinderUtil
 import com.citi.copilotautomation.config.ProjectAgentConfig
+import com.citi.copilotautomation.core.ReflectionUtil
+import com.citi.copilotautomation.core.ResponseBuilder
+import com.citi.copilotautomation.core.ServerConfig
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
@@ -15,12 +18,12 @@ import org.java_websocket.WebSocket
 import org.java_websocket.handshake.ClientHandshake
 import org.java_websocket.server.WebSocketServer
 import java.awt.Component
-import java.lang.reflect.Field
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.util.*
 import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.ReentrantLock
 import javax.swing.JScrollPane
@@ -49,7 +52,7 @@ class CopilotWebSocketServer(
     }
 
     private val currentPrompt = AtomicReference<String?>(null)
-    @Volatile private var running = false
+    private val running = AtomicBoolean(false)
     private var actualPort = 0
     @Volatile private var startupError: Exception? = null
 
@@ -80,7 +83,7 @@ class CopilotWebSocketServer(
 
     override fun onStart() {
         LOG.debug("onStart() called for CopilotWebSocketServer instance for project '${project.name}'.")
-        running = true
+        running.set(true)
         actualPort = address.port
         LOG.info("CopilotWebSocketServer for project '${project.name}' started on port: $actualPort")
         startLatch.countDown()
@@ -98,16 +101,12 @@ class CopilotWebSocketServer(
             }
 
             val agentDetails = objectMapper.readValue(configFile.toFile(), Map::class.java)
-            val response = mapOf(
-                "type" to "agent_details",
-                "status" to "success",
-                "details" to agentDetails
-            )
+            val response = ResponseBuilder.agentDetails(port, agentDetails)
             conn.send(objectMapper.writeValueAsString(response))
             LOG.debug("Proactively sent agent config to new connection $connectionId")
         } catch (e: Exception) {
             LOG.error("Could not send agent details onOpen: ${e.message}")
-            val errorResponse = mapOf("type" to "error", "message" to "Failed to retrieve agent details on connection: ${e.message}")
+            val errorResponse = ResponseBuilder.error("agent_details", port, "Failed to retrieve agent details on connection: ${e.message}")
             conn.send(objectMapper.writeValueAsString(errorResponse))
         }
     }
@@ -145,24 +144,17 @@ class CopilotWebSocketServer(
                 "setModelGeminiPro" -> executeEdtAction(type) { CopilotChatToolWindowUtil.setModelGeminiPro(project) }
                 "setModelClaudeSonnet4" -> executeEdtAction(type) { CopilotChatToolWindowUtil.setModelClaudeSonnet4(project) }
                 "newAgentSession" -> executeEdtAction(type) { CopilotChatToolWindowUtil.startNewAgentSession(project) }
-                "getCurrentPrompt" -> mapOf("type" to "currentPrompt", "status" to "success", "currentPrompt" to getCurrentPrompt())
-                "getPendingPrompts" -> mapOf("type" to "pendingPrompts", "status" to "success", "pendingPrompts" to getPendingPrompts())
+                "getCurrentPrompt" -> ResponseBuilder.success("currentPrompt", port, mapOf("currentPrompt" to getCurrentPrompt()))
+                "getPendingPrompts" -> ResponseBuilder.success("pendingPrompts", port, mapOf("pendingPrompts" to getPendingPrompts()))
                 "runCliCommand" -> handleCliCommand(request["command"] as? String ?: "")
                 "diagnoseUI" -> handleDiagnoseUI()
-                else -> mapOf("type" to "error", "status" to "error", "message" to "Unknown message type: $type")
+                else -> ResponseBuilder.error("error", port, "Unknown message type: $type")
             }
 
-            val responseWithPort = response.toMutableMap()
-            responseWithPort["port"] = port
-            conn.send(objectMapper.writeValueAsString(responseWithPort))
+            conn.send(objectMapper.writeValueAsString(response))
         } catch (e: Exception) {
             LOG.error("Error processing message", e)
-            val errorResponse = mutableMapOf<String, Any?>(
-                "type" to "error",
-                "status" to "error",
-                "message" to "Error processing message: ${e.message}",
-                "port" to port
-            )
+            val errorResponse = ResponseBuilder.error("error", port, "Error processing message: ${e.message}")
             conn.send(objectMapper.writeValueAsString(errorResponse))
         }
     }
@@ -178,20 +170,20 @@ class CopilotWebSocketServer(
                 success = action()
             }
             if (success) {
-                mapOf("type" to typeName, "status" to "success")
+                ResponseBuilder.success(typeName, port)
             } else {
                 LOG.warn("$typeName action returned false (UI component not found or operation failed)")
-                mapOf("type" to typeName, "status" to "error", "message" to "Operation failed - UI component may not be available")
+                ResponseBuilder.error(typeName, port, "Operation failed - UI component may not be available")
             }
         } catch (e: Exception) {
             LOG.warn("Failed to execute $typeName: ${e.message}")
-            mapOf("type" to typeName, "status" to "error", "message" to e.message)
+            ResponseBuilder.error(typeName, port, e.message ?: "Unknown error")
         }
     }
 
     private fun handleCopilotPrompt(prompt: String?, conn: WebSocket): Map<String, Any?> {
         if (prompt.isNullOrEmpty()) {
-            return mapOf("type" to "copilotPrompt", "status" to "error", "message" to "Prompt cannot be empty")
+            return ResponseBuilder.error("copilotPrompt", port, "Prompt cannot be empty")
         }
 
         val wasEmpty = promptQueue.isEmpty()
@@ -199,7 +191,7 @@ class CopilotWebSocketServer(
         if (wasEmpty) {
             submitWorkerTask()
         }
-        return mapOf("type" to "copilotPrompt", "status" to "executing", "message" to "Prompt is being executed")
+        return ResponseBuilder.executing("copilotPrompt", port, "Prompt is being executed")
     }
 
     private fun submitWorkerTask() {
@@ -208,13 +200,7 @@ class CopilotWebSocketServer(
             currentPrompt.set(job["prompt"] as? String)
 
             val result = executeCopilotPrompt(job["prompt"] as String)
-            val responseMsg = mutableMapOf<String, Any?>(
-                "type" to "copilotPromptResult",
-                "status" to "success",
-                "prompt" to job["prompt"],
-                "content" to result,
-                "port" to port
-            )
+            val responseMsg = ResponseBuilder.promptResult(port, job["prompt"] as String, result)
 
             val clientConn = job["conn"] as? WebSocket
             sendMessageSafely(clientConn, responseMsg)
@@ -234,11 +220,8 @@ class CopilotWebSocketServer(
                 CopilotChatUtil.sendToCopilotChat(project, prompt) {}
             }
 
-            val timeoutMs = 60000L
-            val pollIntervalMs = 250L
-
             LOG.debug("Waiting for generation to start...")
-            val generationStarted = pollUntil(timeoutMs, pollIntervalMs) {
+            val generationStarted = pollUntil(ServerConfig.GENERATION_START_TIMEOUT_MS, ServerConfig.POLL_INTERVAL_MS) {
                 var buttonCount = 0
                 ApplicationManager.getApplication().invokeAndWait {
                     buttonCount = UIFinderUtil.countVisibleStopActionButtons(getToolWindowComponent())
@@ -252,7 +235,7 @@ class CopilotWebSocketServer(
             LOG.debug("Generation started.")
 
             LOG.debug("Waiting for generation to complete...")
-            val generationComplete = pollUntil(timeoutMs, pollIntervalMs) {
+            val generationComplete = pollUntil(ServerConfig.GENERATION_COMPLETE_TIMEOUT_MS, ServerConfig.POLL_INTERVAL_MS) {
                 var buttonCount = 0
                 ApplicationManager.getApplication().invokeAndWait {
                     buttonCount = UIFinderUtil.countVisibleStopActionButtons(getToolWindowComponent())
@@ -265,7 +248,7 @@ class CopilotWebSocketServer(
             }
 
             LOG.debug("Generation complete.")
-            Thread.sleep(200)
+            Thread.sleep(ServerConfig.POST_GENERATION_DELAY_MS)
 
             var finalResponse = ""
             ApplicationManager.getApplication().invokeAndWait {
@@ -329,19 +312,14 @@ class CopilotWebSocketServer(
             return messageTexts
         }
 
-        // Fallback to old method
+        // Fallback to old method using reflection
         val allMarkdownPanes = mutableListOf<Component>()
         UIFinderUtil.findMarkdownPanes(searchRoot, allMarkdownPanes)
 
         LOG.debug("getAllMarkdowns: Found ${allMarkdownPanes.size} panes using old method")
 
         return allMarkdownPanes.mapNotNull { pane ->
-            try {
-                getMarkdownField(pane.javaClass)?.get(pane) as? String
-            } catch (e: Exception) {
-                LOG.debug("getAllMarkdowns: Failed to extract from ${pane.javaClass.name}: ${e.message}")
-                null
-            }
+            ReflectionUtil.getStringField(pane, "markdown")
         }
     }
 
@@ -349,13 +327,16 @@ class CopilotWebSocketServer(
         LOG.info("Shutting down CopilotWebSocketServer...")
         scheduledExecutor.schedule({
             stopServer()
-        }, 1, TimeUnit.SECONDS)
-        return mapOf("type" to "shutdown", "status" to "success", "message" to "Server is shutting down")
+        }, ServerConfig.SHUTDOWN_DELAY_SEC, TimeUnit.SECONDS)
+        return ResponseBuilder.success("shutdown", port, mapOf("message" to "Server is shutting down"))
     }
 
     fun getCurrentPrompt(): String? = currentPrompt.get()
 
-    fun getPendingPrompts(): List<String> = promptQueue.mapNotNull { it["prompt"] as? String }
+    fun getPendingPrompts(): List<String> {
+        // Take a snapshot to avoid ConcurrentModificationException
+        return promptQueue.toList().mapNotNull { it["prompt"] as? String }
+    }
 
     private fun handleDiagnoseUI(): Map<String, Any?> {
         return try {
@@ -364,18 +345,10 @@ class CopilotWebSocketServer(
                 report = UIDiagnostics.generateDiagnosticReport(project)
             }
             LOG.info("UI Diagnostics:\n$report")
-            mapOf(
-                "type" to "diagnoseUI",
-                "status" to "success",
-                "report" to report
-            )
+            ResponseBuilder.diagnostics(port, report)
         } catch (e: Exception) {
             LOG.error("Failed to run UI diagnostics: ${e.message}", e)
-            mapOf(
-                "type" to "diagnoseUI",
-                "status" to "error",
-                "message" to "Failed to run diagnostics: ${e.message}"
-            )
+            ResponseBuilder.error("diagnoseUI", port, "Failed to run diagnostics: ${e.message}")
         }
     }
 
@@ -398,24 +371,17 @@ class CopilotWebSocketServer(
         return try {
             val commandTokens = fullCommandString.split("\\s+".toRegex())
             if (commandTokens.isEmpty()) {
-                return mapOf("type" to "runCliCommand", "status" to "error", "message" to "Command cannot be empty")
+                return ResponseBuilder.cliError(port, "Command cannot be empty")
             }
 
             val baseCommand = commandTokens.first()
-            if (baseCommand !in SAFE_COMMANDS) {
-                return mapOf(
-                    "type" to "runCliCommand",
-                    "status" to "error",
-                    "message" to "Command '$baseCommand' not allowed. Allowed: ${SAFE_COMMANDS.joinToString(", ")}"
-                )
+            if (baseCommand !in ServerConfig.SAFE_COMMANDS) {
+                return ResponseBuilder.cliError(port,
+                    "Command '$baseCommand' not allowed. Allowed: ${ServerConfig.SAFE_COMMANDS.joinToString(", ")}")
             }
 
-            if (UNSAFE_PATTERN.containsMatchIn(fullCommandString)) {
-                return mapOf(
-                    "type" to "runCliCommand",
-                    "status" to "error",
-                    "message" to "Command contains potentially unsafe shell metacharacters."
-                )
+            if (ServerConfig.UNSAFE_PATTERN.containsMatchIn(fullCommandString)) {
+                return ResponseBuilder.cliError(port, "Command contains potentially unsafe shell metacharacters.")
             }
 
             val proc = ProcessBuilder("/bin/sh", "-c", fullCommandString)
@@ -428,21 +394,18 @@ class CopilotWebSocketServer(
             val exitCode = proc.waitFor()
 
             if (exitCode != 0) {
-                return mapOf(
-                    "type" to "runCliCommand",
-                    "status" to "error",
-                    "message" to "Command failed with exit code $exitCode: ${errorOutput.ifEmpty { output }}"
-                )
+                return ResponseBuilder.cliError(port,
+                    "Command failed with exit code $exitCode: ${errorOutput.ifEmpty { output }}")
             }
 
-            mapOf("type" to "runCliCommand", "status" to "success", "output" to output)
+            ResponseBuilder.cliResult(port, output)
         } catch (e: Exception) {
             LOG.warn("CLI command execution error: ${e.message}")
-            mapOf("type" to "runCliCommand", "status" to "error", "message" to "Execution error: ${e.message}")
+            ResponseBuilder.cliError(port, "Execution error: ${e.message}")
         }
     }
 
-    fun isRunning(): Boolean = running
+    fun isRunning(): Boolean = running.get()
 
     fun stopServer(): Boolean {
         LOG.info("CopilotWebSocketServer for project '${project.name}' stopping on port: $actualPort")
@@ -451,11 +414,11 @@ class CopilotWebSocketServer(
         scheduledExecutor.shutdown()
 
         try {
-            if (!workerExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+            if (!workerExecutor.awaitTermination(ServerConfig.EXECUTOR_SHUTDOWN_TIMEOUT_SEC, TimeUnit.SECONDS)) {
                 LOG.warn("Worker executor did not terminate gracefully, forcing shutdown")
                 workerExecutor.shutdownNow()
             }
-            if (!scheduledExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+            if (!scheduledExecutor.awaitTermination(ServerConfig.EXECUTOR_SHUTDOWN_TIMEOUT_SEC, TimeUnit.SECONDS)) {
                 LOG.warn("Scheduled executor did not terminate gracefully, forcing shutdown")
                 scheduledExecutor.shutdownNow()
             }
@@ -467,35 +430,16 @@ class CopilotWebSocketServer(
         }
 
         try {
-            stop(1000)
+            stop(ServerConfig.SERVER_STOP_TIMEOUT_MS)
         } catch (e: Exception) {
             LOG.warn("Error stopping server: ${e.message}")
         } finally {
-            running = false
+            running.set(false)
         }
         return true
     }
 
     companion object {
         private val LOG = Logger.getInstance(CopilotWebSocketServer::class.java)
-
-        private val SAFE_COMMANDS = setOf(
-            "ls", "pwd", "whoami", "date", "echo", "cat", "uptime", "gradlew",
-            "find", "grep", "curl", "python3", "sh", "git", "jq", "node", "java"
-        )
-
-        private val UNSAFE_PATTERN = Regex("[;|&`<>]|\\$\\(|&&|\\|\\|")
-
-        private val markdownFieldCache = ConcurrentHashMap<Class<*>, Field?>()
-
-        private fun getMarkdownField(clazz: Class<*>): Field? {
-            return markdownFieldCache.computeIfAbsent(clazz) {
-                try {
-                    clazz.getDeclaredField("markdown").apply { isAccessible = true }
-                } catch (e: Exception) {
-                    null
-                }
-            }
-        }
     }
 }

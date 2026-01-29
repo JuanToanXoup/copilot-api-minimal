@@ -1,5 +1,6 @@
 package com.citi.copilotautomation.ui
 
+import com.citi.copilotautomation.core.ServerConfig
 import com.citi.copilotautomation.websocket.CopilotWebSocketProjectService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
@@ -28,10 +29,9 @@ class PortDisplayPanel(private val project: Project) : JPanel(FlowLayout(FlowLay
         portLabel.font = Font("JetBrains Mono", Font.BOLD, 14)
         add(portLabel)
 
-        // Poll for port until server starts (max 20 seconds)
+        // Poll for port until server starts
         var attempts = 0
-        val maxAttempts = 40
-        val timer = Timer(500) { event ->
+        val timer = Timer(ServerConfig.UI_POLL_INTERVAL_MS) { event ->
             val service = project.getService(CopilotWebSocketProjectService::class.java)
             val port = service?.getPort() ?: 0
             if (port > 0) {
@@ -39,7 +39,7 @@ class PortDisplayPanel(private val project: Project) : JPanel(FlowLayout(FlowLay
                 (event.source as Timer).stop()
             } else {
                 attempts++
-                if (attempts >= maxAttempts) {
+                if (attempts >= ServerConfig.UI_POLL_MAX_ATTEMPTS) {
                     portLabel.text = "WebSocket Port: Failed to start"
                     (event.source as Timer).stop()
                 }

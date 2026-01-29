@@ -1,9 +1,7 @@
 package com.citi.copilotautomation.config
 
+import com.citi.copilotautomation.core.JsonUtil
 import com.fasterxml.jackson.annotation.JsonIgnore
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.SerializationFeature
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -23,7 +21,7 @@ class ProjectAgentConfig(
     init {
         project?.let { proj ->
             val projectRoot = getProjectRoot(proj)
-            logger.info("[ProjectAgentConfig] Service constructor. projectRoot=$projectRoot")
+            LOG.info("[ProjectAgentConfig] Service constructor. projectRoot=$projectRoot")
 
             if (projectRoot != null) {
                 val configFile = Paths.get(projectRoot, CONFIG_PATH)
@@ -37,18 +35,18 @@ class ProjectAgentConfig(
                             ServerSocket(0).use { socket ->
                                 port = socket.localPort
                             }
-                            logger.info("[ProjectAgentConfig] Dynamically assigned port: $port")
+                            LOG.info("[ProjectAgentConfig] Dynamically assigned port: $port")
                         }
                         save(projectRoot)
-                        logger.info("[ProjectAgentConfig] Created config at: $configFile")
+                        LOG.info("[ProjectAgentConfig] Created config at: $configFile")
                     } catch (e: Exception) {
-                        logger.warn("[ProjectAgentConfig] Error creating config: $e", e)
+                        LOG.warn("[ProjectAgentConfig] Error creating config: $e", e)
                     }
                 } else {
-                    logger.info("[ProjectAgentConfig] Config already exists at: $configFile")
+                    LOG.info("[ProjectAgentConfig] Config already exists at: $configFile")
                 }
             } else {
-                logger.warn("[ProjectAgentConfig] Could not determine project root. Config file will not be created.")
+                LOG.warn("[ProjectAgentConfig] Could not determine project root. Config file will not be created.")
             }
         }
     }
@@ -56,17 +54,12 @@ class ProjectAgentConfig(
     fun save(projectRoot: String) {
         val configFile = Paths.get(projectRoot, CONFIG_PATH)
         Files.createDirectories(configFile.parent)
-        val mapper = ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT)
-        mapper.writeValue(configFile.toFile(), this)
+        JsonUtil.prettyMapper.writeValue(configFile.toFile(), this)
     }
 
     companion object {
-        private val logger = Logger.getInstance(ProjectAgentConfig::class.java)
+        private val LOG = Logger.getInstance(ProjectAgentConfig::class.java)
         const val CONFIG_PATH = ".citi-agent/project-agent-config.json"
-
-        init {
-            logger.info("[ProjectAgentConfig] Class loaded!")
-        }
 
         fun getInstance(project: Project): ProjectAgentConfig {
             return project.getService(ProjectAgentConfig::class.java)
@@ -95,9 +88,7 @@ class ProjectAgentConfig(
                 return ProjectAgentConfig(project)
             }
 
-            val mapper = ObjectMapper()
-            mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-            val config = mapper.readValue(configFile.toFile(), ProjectAgentConfig::class.java)
+            val config = JsonUtil.mapper.readValue(configFile.toFile(), ProjectAgentConfig::class.java)
             config.project = project
             return config
         }

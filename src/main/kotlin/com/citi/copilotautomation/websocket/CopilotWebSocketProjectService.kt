@@ -1,6 +1,7 @@
 package com.citi.copilotautomation.websocket
 
 import com.citi.copilotautomation.config.ProjectAgentConfig
+import com.citi.copilotautomation.core.ServerConfig
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
@@ -27,10 +28,10 @@ class CopilotWebSocketProjectService(
     fun getPort(): Int = synchronized(serverLock) { server?.port ?: 0 }
 
     fun startServer(): Boolean = synchronized(serverLock) {
-        LOG.warn("Service [${System.identityHashCode(this)}] received start command for project '${project.name}'.")
+        LOG.info("Service [${System.identityHashCode(this)}] received start command for project '${project.name}'.")
 
         if (server != null && server!!.isRunning()) {
-            LOG.warn("Service [${System.identityHashCode(this)}] reports server is already running. Aborting start.")
+            LOG.info("Service [${System.identityHashCode(this)}] reports server is already running. Aborting start.")
             return true
         }
 
@@ -43,30 +44,29 @@ class CopilotWebSocketProjectService(
 
             if (config.port != null && config.port!! > 0 && isPortAvailable(config.port!!)) {
                 portToUse = config.port!!
-                LOG.warn("Using port from config: $portToUse")
+                LOG.info("Using port from config: $portToUse")
             } else {
-                LOG.warn("No valid port in config or port unavailable. Will use random port.")
+                LOG.info("No valid port in config or port unavailable. Will use random port.")
             }
 
             var attempt = 0
-            val maxRetries = 3
             var started = false
             var lastException: Exception? = null
 
-            while (attempt < maxRetries && !started) {
+            while (attempt < ServerConfig.PORT_RETRY_ATTEMPTS && !started) {
                 try {
                     server = CopilotWebSocketServer(portToUse, project)
-                    LOG.warn("Service [${System.identityHashCode(this)}]: Created new server object. ID: ${System.identityHashCode(server)}")
+                    LOG.debug("Service [${System.identityHashCode(this)}]: Created new server object. ID: ${System.identityHashCode(server)}")
 
-                    started = server!!.startServerAndWait(15000)
+                    started = server!!.startServerAndWait(ServerConfig.SERVER_START_TIMEOUT_MS)
                     if (started) {
                         val startedPort = server!!.port
-                        LOG.warn("Service [${System.identityHashCode(this)}]: SUCCESS. Server for project '${project.name}' started on port: $startedPort")
+                        LOG.info("Service [${System.identityHashCode(this)}]: SUCCESS. Server for project '${project.name}' started on port: $startedPort")
 
                         if (config.port != startedPort) {
                             config.port = startedPort
                             config.save(projectRoot)
-                            LOG.warn("Saved new port $startedPort to config file.")
+                            LOG.info("Saved new port $startedPort to config file.")
                         }
                         return true
                     } else {
@@ -79,20 +79,19 @@ class CopilotWebSocketProjectService(
                     ServerSocket(0).use { s ->
                         portToUse = s.localPort
                     }
-                    LOG.warn("Selected new random available port: $portToUse")
+                    LOG.info("Selected new random available port: $portToUse")
                     attempt++
                     lastException = be
                     stopServerInternal()
                 } catch (e: Exception) {
                     LOG.error("Service [${System.identityHashCode(this)}]: EXCEPTION during server start.", e)
                     stopServerInternal()
-                    lastException = e
                     return false
                 }
             }
 
             if (!started && lastException != null) {
-                LOG.error("Service [${System.identityHashCode(this)}]: Could not start server after $maxRetries attempts.", lastException)
+                LOG.error("Service [${System.identityHashCode(this)}]: Could not start server after ${ServerConfig.PORT_RETRY_ATTEMPTS} attempts.", lastException)
             }
             false
         } catch (e: Exception) {
@@ -116,19 +115,19 @@ class CopilotWebSocketProjectService(
     }
 
     private fun stopServerInternal() {
-        LOG.warn("Service [${System.identityHashCode(this)}] received stop command.")
+        LOG.debug("Service [${System.identityHashCode(this)}] received stop command.")
         val serverToStop = server
         if (serverToStop != null) {
-            LOG.warn("Service [${System.identityHashCode(this)}] is stopping server instance [${System.identityHashCode(serverToStop)}].")
+            LOG.debug("Service [${System.identityHashCode(this)}] is stopping server instance [${System.identityHashCode(serverToStop)}].")
             try {
                 serverToStop.stopServer()
             } catch (e: Exception) {
                 LOG.warn("Exception while stopping server: ${e.message}")
             }
             server = null
-            LOG.warn("CopilotWebSocketProjectService: Server stopped and port released.")
+            LOG.info("CopilotWebSocketProjectService: Server stopped and port released.")
         } else {
-            LOG.warn("CopilotWebSocketProjectService: No server instance to stop.")
+            LOG.debug("CopilotWebSocketProjectService: No server instance to stop.")
         }
     }
 
