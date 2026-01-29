@@ -268,24 +268,115 @@ object CopilotChatToolWindowUtil {
             // Give the popup time to appear
             Thread.sleep(150)
 
-            // Step 2: Find the popup and click on the item directly
-            val popup = findComboBoxPopup()
-            if (popup != null) {
-                LOG.info("simulateComboBoxSelection: Found popup, clicking item at index $index")
+            // Step 2: Find the popup's JList and select the item, then hide popup
+            val popupList = findPopupJList()
+            if (popupList != null) {
+                LOG.info("simulateComboBoxSelection: Found popup JList, selecting index $index")
 
-                // Click directly on the item in the popup
-                clickPopupItemAtIndex(popup, index)
+                // Set the selection on the list
+                popupList.selectedIndex = index
+
+                // Small delay then hide the popup to commit the selection
+                Thread.sleep(50)
+
+                // Hide the popup - this commits the selection
+                hideComboBoxPopup(comboBox)
+
+                LOG.info("simulateComboBoxSelection: Selection committed via popup hide")
                 return true
             }
 
             // Fallback: Try using keyboard navigation on the combo box
-            LOG.info("simulateComboBoxSelection: No popup found, trying keyboard selection")
+            LOG.info("simulateComboBoxSelection: No popup JList found, trying keyboard selection")
             return selectViaKeyboard(comboBox, index)
 
         } catch (e: Exception) {
             LOG.warn("simulateComboBoxSelection: Failed: ${e.message}", e)
             return false
         }
+    }
+
+    /**
+     * Find the JList inside the combo box popup.
+     */
+    private fun findPopupJList(): javax.swing.JList<*>? {
+        for (window in java.awt.Window.getWindows()) {
+            if (window.isVisible) {
+                val list = findJListInContainer(window)
+                if (list != null) {
+                    LOG.debug("findPopupJList: Found JList in ${window.javaClass.simpleName}")
+                    return list
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Recursively find a JList in a container.
+     */
+    private fun findJListInContainer(container: java.awt.Container): javax.swing.JList<*>? {
+        for (comp in container.components) {
+            if (comp is javax.swing.JList<*>) {
+                return comp
+            }
+            if (comp is java.awt.Container) {
+                val found = findJListInContainer(comp)
+                if (found != null) return found
+            }
+        }
+        return null
+    }
+
+    /**
+     * Hide the combo box popup to commit the selection.
+     */
+    private fun hideComboBoxPopup(comboBox: Component) {
+        // Try hidePopup() method
+        try {
+            comboBox.javaClass.getMethod("hidePopup").invoke(comboBox)
+            LOG.debug("hideComboBoxPopup: hidePopup() succeeded")
+            return
+        } catch (e: Exception) {
+            LOG.debug("hideComboBoxPopup: hidePopup() failed: ${e.message}")
+        }
+
+        // Try setPopupVisible(false)
+        try {
+            comboBox.javaClass.getMethod("setPopupVisible", Boolean::class.java).invoke(comboBox, false)
+            LOG.debug("hideComboBoxPopup: setPopupVisible(false) succeeded")
+            return
+        } catch (e: Exception) {
+            LOG.debug("hideComboBoxPopup: setPopupVisible(false) failed: ${e.message}")
+        }
+
+        // Press Escape to close popup
+        pressEscapeKey(comboBox)
+    }
+
+    /**
+     * Press Escape key on a component.
+     */
+    private fun pressEscapeKey(component: Component) {
+        val escPress = java.awt.event.KeyEvent(
+            component,
+            java.awt.event.KeyEvent.KEY_PRESSED,
+            System.currentTimeMillis(),
+            0,
+            java.awt.event.KeyEvent.VK_ESCAPE,
+            java.awt.event.KeyEvent.CHAR_UNDEFINED
+        )
+        val escRelease = java.awt.event.KeyEvent(
+            component,
+            java.awt.event.KeyEvent.KEY_RELEASED,
+            System.currentTimeMillis(),
+            0,
+            java.awt.event.KeyEvent.VK_ESCAPE,
+            java.awt.event.KeyEvent.CHAR_UNDEFINED
+        )
+        component.dispatchEvent(escPress)
+        component.dispatchEvent(escRelease)
+        LOG.debug("pressEscapeKey: Dispatched Escape key")
     }
 
     /**
