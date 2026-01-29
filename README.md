@@ -186,23 +186,28 @@ ping → pong
 
 ## Testing
 
-A comprehensive Python test suite is included in the `tests/` folder:
+A comprehensive Python test suite is included in the `tests/` folder.
+
+Tests automatically read the port from `.citi-agent/project-agent-config.json` if no `--port` flag is provided.
 
 ```bash
 # Install dependency
 pip install websocket-client
 
-# Run all tests
-python tests/run_all.py --port 8765
+# Run all tests (uses port from config file)
+python tests/run_all.py
+
+# Override with explicit port
+python tests/run_all.py --port 9000
 
 # Skip slow Copilot prompt tests
-python tests/run_all.py --port 8765 --skip-slow
+python tests/run_all.py --skip-slow
 
 # Skip shutdown test (keep server running)
-python tests/run_all.py --port 8765 --skip-shutdown
+python tests/run_all.py --skip-shutdown
 
 # Run a specific test only
-python tests/run_all.py --port 8765 --only test_ping.py
+python tests/run_all.py --only test_ping.py
 ```
 
 ### Individual Test Files
@@ -227,8 +232,8 @@ python tests/run_all.py --port 8765 --only test_ping.py
 
 Run individual tests directly:
 ```bash
-python tests/test_ping.py --port 8765
-python tests/test_set_model_gpt41.py --port 8765
+python tests/test_ping.py
+python tests/test_set_model_gpt41.py --port 9000  # override port
 ```
 
 ## Development
