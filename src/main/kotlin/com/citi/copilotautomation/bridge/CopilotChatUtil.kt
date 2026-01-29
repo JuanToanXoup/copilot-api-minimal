@@ -59,14 +59,14 @@ object CopilotChatUtil {
 
                 LOG.info("sendToCopilotChat: Found ${chatInputResult.type}, class: ${chatInputResult.component.javaClass.name}")
 
-                // Set text based on input type
+                // Set text - try multiple approaches
                 val textSet = when (chatInputResult.type) {
                     UIFinderUtil.ChatInputResult.InputType.EDITOR -> {
                         setTextOnEditor(project, chatInputResult.editor!!, text)
                     }
-                    UIFinderUtil.ChatInputResult.InputType.TEXT_AREA,
-                    UIFinderUtil.ChatInputResult.InputType.TEXT_COMPONENT -> {
-                        setTextOnTextComponent(chatInputResult.component as JTextComponent, text)
+                    else -> {
+                        // Try direct setText first (works for JTextComponent subclasses)
+                        setTextDirect(chatInputResult.component, text)
                     }
                 }
 
@@ -119,15 +119,80 @@ object CopilotChatUtil {
         }
     }
 
-    private fun setTextOnTextComponent(component: JTextComponent, text: String): Boolean {
-        return try {
-            component.text = text
-            component.caretPosition = text.length
-            true
-        } catch (e: Exception) {
-            LOG.warn("setTextOnTextComponent: Failed: ${e.message}")
-            false
+    private fun setTextDirect(component: java.awt.Component, text: String): Boolean {
+        LOG.info("setTextDirect: Attempting on ${component.javaClass.name}")
+
+        // Try as JTextComponent first (most reliable)
+        if (component is JTextComponent) {
+            return try {
+                component.text = text
+                component.caretPosition = text.length
+                LOG.info("setTextDirect: Set via JTextComponent.text")
+                true
+            } catch (e: Exception) {
+                LOG.warn("setTextDirect: JTextComponent failed: ${e.message}")
+                false
+            }
         }
+
+        // Try reflection setText
+        try {
+            val setTextMethod = component.javaClass.getMethod("setText", String::class.java)
+            setTextMethod.invoke(component, text)
+            LOG.info("setTextDirect: Set via reflection setText()")
+            return true
+        } catch (e: Exception) {
+            LOG.warn("setTextDirect: Reflection setText failed: ${e.message}")
+        }
+
+        LOG.error("setTextDirect: All methods failed for ${component.javaClass.name}")
+        return false
+    }
+
+    private fun setTextViaReflection(component: java.awt.Component, text: String): Boolean {
+        // Try setText method via reflection
+        try {
+            val setTextMethod = component.javaClass.getMethod("setText", String::class.java)
+            setTextMethod.invoke(component, text)
+            LOG.info("setTextViaReflection: Set text via setText() method")
+            return true
+        } catch (e: NoSuchMethodException) {
+            LOG.debug("setTextViaReflection: No setText method")
+        } catch (e: Exception) {
+            LOG.warn("setTextViaReflection: setText failed: ${e.message}")
+        }
+
+        // Try to find a text field and set it
+        try {
+            val textField = component.javaClass.getDeclaredField("text")
+            textField.isAccessible = true
+            textField.set(component, text)
+            LOG.info("setTextViaReflection: Set text via 'text' field")
+            return true
+        } catch (e: NoSuchFieldException) {
+            LOG.debug("setTextViaReflection: No 'text' field")
+        } catch (e: Exception) {
+            LOG.warn("setTextViaReflection: Field access failed: ${e.message}")
+        }
+
+        // Try looking inside for any JTextComponent
+        if (component is java.awt.Container) {
+            val textComp = ComponentFinder.findFirstByPredicate(component) { it is JTextComponent }
+            if (textComp is JTextComponent) {
+                return try {
+                    textComp.text = text
+                    textComp.caretPosition = text.length
+                    LOG.info("setTextViaReflection: Set text on nested JTextComponent: ${textComp.javaClass.name}")
+                    true
+                } catch (e: Exception) {
+                    LOG.warn("setTextViaReflection: Nested JTextComponent failed: ${e.message}")
+                    false
+                }
+            }
+        }
+
+        LOG.error("setTextViaReflection: All methods failed for ${component.javaClass.name}")
+        return false
     }
 
     // =========================================================================
@@ -147,10 +212,7 @@ object CopilotChatUtil {
         val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(CopilotClassNames.TOOL_WINDOW_ID)
         val rootComponent = toolWindow?.component
         if (rootComponent != null) {
-            val sendButton = UIFinderUtil.findSendButton(rootComponent)
-            if (sendButton is AbstractButton) {
-                sendButton.doClick()
-                LOG.info("trySendFromEditor: Clicked send button")
+            if (trySendViaButton(rootComponent)) {
                 return true
             }
         }
@@ -202,17 +264,62 @@ object CopilotChatUtil {
 
     private fun trySendViaButton(rootComponent: java.awt.Component): Boolean {
         val sendButton = UIFinderUtil.findSendButton(rootComponent)
+        if (sendButton == null) {
+            LOG.warn("trySendViaButton: Send button not found")
+            return false
+        }
+
+        LOG.info("trySendViaButton: Found button: ${sendButton.javaClass.name}")
+
+        // Try AbstractButton.doClick() first
         if (sendButton is AbstractButton) {
             return try {
                 sendButton.doClick()
-                LOG.info("trySendViaButton: Button clicked")
+                LOG.info("trySendViaButton: Clicked via AbstractButton.doClick()")
                 true
             } catch (e: Exception) {
-                LOG.warn("trySendViaButton: Failed: ${e.message}")
+                LOG.warn("trySendViaButton: AbstractButton.doClick() failed: ${e.message}")
                 false
             }
         }
-        LOG.warn("trySendViaButton: Send button not found")
+
+        // Try reflection click() method
+        try {
+            val clickMethod = sendButton.javaClass.getMethod("click")
+            clickMethod.invoke(sendButton)
+            LOG.info("trySendViaButton: Clicked via reflection click()")
+            return true
+        } catch (e: NoSuchMethodException) {
+            LOG.debug("trySendViaButton: No click() method")
+        } catch (e: Exception) {
+            LOG.warn("trySendViaButton: Reflection click() failed: ${e.message}")
+        }
+
+        // Try reflection doClick() method
+        try {
+            val doClickMethod = sendButton.javaClass.getMethod("doClick")
+            doClickMethod.invoke(sendButton)
+            LOG.info("trySendViaButton: Clicked via reflection doClick()")
+            return true
+        } catch (e: NoSuchMethodException) {
+            LOG.debug("trySendViaButton: No doClick() method")
+        } catch (e: Exception) {
+            LOG.warn("trySendViaButton: Reflection doClick() failed: ${e.message}")
+        }
+
+        // Try performClick() for action buttons
+        try {
+            val performClickMethod = sendButton.javaClass.getMethod("performClick")
+            performClickMethod.invoke(sendButton)
+            LOG.info("trySendViaButton: Clicked via reflection performClick()")
+            return true
+        } catch (e: NoSuchMethodException) {
+            LOG.debug("trySendViaButton: No performClick() method")
+        } catch (e: Exception) {
+            LOG.warn("trySendViaButton: Reflection performClick() failed: ${e.message}")
+        }
+
+        LOG.error("trySendViaButton: All click methods failed")
         return false
     }
 

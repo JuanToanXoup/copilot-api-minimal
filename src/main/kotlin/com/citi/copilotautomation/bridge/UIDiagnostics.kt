@@ -87,6 +87,46 @@ object UIDiagnostics {
     }
 
     /**
+     * Inspect the CopilotAgentInputTextArea to find text-setting methods.
+     */
+    fun inspectInputComponent(project: Project): String {
+        val toolWindow = ToolWindowManager.getInstance(project)
+            .getToolWindow(CopilotClassNames.TOOL_WINDOW_ID) ?: return "Tool window not found"
+
+        val content = toolWindow.contentManager.getContent(0) ?: return "No content"
+
+        val inputComp = ComponentFinder.findFirstByClassName(content.component, CopilotClassNames.AGENT_INPUT_TEXT_AREA)
+            ?: return "CopilotAgentInputTextArea not found"
+
+        val sb = StringBuilder()
+        sb.appendLine("=== CopilotAgentInputTextArea Inspection ===")
+        sb.appendLine("Class: ${inputComp.javaClass.name}")
+        sb.appendLine("Superclass: ${inputComp.javaClass.superclass?.name}")
+        sb.appendLine("Interfaces: ${inputComp.javaClass.interfaces.map { it.name }}")
+        sb.appendLine()
+
+        sb.appendLine("--- Methods containing 'text' or 'set' ---")
+        inputComp.javaClass.methods
+            .filter { it.name.contains("text", ignoreCase = true) || it.name.contains("set", ignoreCase = true) }
+            .sortedBy { it.name }
+            .forEach { sb.appendLine("  ${it.name}(${it.parameterTypes.map { p -> p.simpleName }.joinToString(", ")})") }
+
+        sb.appendLine()
+        sb.appendLine("--- Fields ---")
+        inputComp.javaClass.declaredFields.forEach { sb.appendLine("  ${it.name}: ${it.type.simpleName}") }
+
+        sb.appendLine()
+        sb.appendLine("--- Children (if Container) ---")
+        if (inputComp is java.awt.Container) {
+            inputComp.components.forEach { child ->
+                sb.appendLine("  ${child.javaClass.name}")
+            }
+        }
+
+        return sb.toString()
+    }
+
+    /**
      * Generate a diagnostic report as a formatted string.
      */
     fun generateDiagnosticReport(project: Project): String {

@@ -25,7 +25,7 @@ object UIFinderUtil {
         val editor: Editor? = null,
         val type: InputType
     ) {
-        enum class InputType { TEXT_AREA, TEXT_COMPONENT, EDITOR }
+        enum class InputType { TEXT_AREA, TEXT_COMPONENT, EDITOR, GENERIC }
     }
 
     // =========================================================================
@@ -87,8 +87,9 @@ object UIFinderUtil {
                 LOG.info("findChatInputEx: CopilotAgentInputTextArea children: ${copilotInput.components.map { it.javaClass.name }}")
             }
 
-            // Return as generic - will likely fail but lets us see the logs
-            return ChatInputResult(copilotInput, null, ChatInputResult.InputType.TEXT_COMPONENT)
+            // Return as generic - needs reflection to set text
+            LOG.info("findChatInputEx: Returning as GENERIC type")
+            return ChatInputResult(copilotInput, null, ChatInputResult.InputType.GENERIC)
         }
 
         // SECOND: Look for IntelliJ Editor component anywhere in the tree

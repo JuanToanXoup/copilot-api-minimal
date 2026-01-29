@@ -148,6 +148,7 @@ class CopilotWebSocketServer(
                 "getPendingPrompts" -> ResponseBuilder.success("pendingPrompts", port, mapOf("pendingPrompts" to getPendingPrompts()))
                 "runCliCommand" -> handleCliCommand(request["command"] as? String ?: "")
                 "diagnoseUI" -> handleDiagnoseUI()
+                "inspectInput" -> handleInspectInput()
                 else -> ResponseBuilder.error("error", port, "Unknown message type: $type")
             }
 
@@ -349,6 +350,20 @@ class CopilotWebSocketServer(
         } catch (e: Exception) {
             LOG.error("Failed to run UI diagnostics: ${e.message}", e)
             ResponseBuilder.error("diagnoseUI", port, "Failed to run diagnostics: ${e.message}")
+        }
+    }
+
+    private fun handleInspectInput(): Map<String, Any?> {
+        return try {
+            var report = ""
+            ApplicationManager.getApplication().invokeAndWait {
+                report = UIDiagnostics.inspectInputComponent(project)
+            }
+            LOG.info("Input Inspection:\n$report")
+            ResponseBuilder.success("inspectInput", port, mapOf("report" to report))
+        } catch (e: Exception) {
+            LOG.error("Failed to inspect input: ${e.message}", e)
+            ResponseBuilder.error("inspectInput", port, "Failed to inspect input: ${e.message}")
         }
     }
 
