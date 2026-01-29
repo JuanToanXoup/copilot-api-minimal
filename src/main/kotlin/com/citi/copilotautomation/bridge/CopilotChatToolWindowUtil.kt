@@ -264,6 +264,9 @@ object CopilotChatToolWindowUtil {
                 if (setSelectedModeMethod != null) {
                     setSelectedModeMethod.invoke(comboBox, chatMode)
                     LOG.info("selectChatModeItem: setSelectedMode(ChatMode) succeeded")
+
+                    // Fire action event to trigger mode change listeners
+                    fireComboBoxActionEvent(comboBox)
                     return true
                 }
             } catch (e: Exception) {
@@ -277,6 +280,7 @@ object CopilotChatToolWindowUtil {
         try {
             comboBox.javaClass.getMethod("setSelectedItem", Any::class.java).invoke(comboBox, item)
             LOG.info("selectChatModeItem: setSelectedItem succeeded")
+            fireComboBoxActionEvent(comboBox)
             return true
         } catch (e: Exception) {
             LOG.debug("selectChatModeItem: setSelectedItem failed: ${e.message}")
@@ -286,6 +290,7 @@ object CopilotChatToolWindowUtil {
         try {
             comboBox.javaClass.getMethod("setSelectedIndex", Int::class.java).invoke(comboBox, index)
             LOG.info("selectChatModeItem: setSelectedIndex succeeded")
+            fireComboBoxActionEvent(comboBox)
             return true
         } catch (e: Exception) {
             LOG.debug("selectChatModeItem: setSelectedIndex failed: ${e.message}")
@@ -293,6 +298,96 @@ object CopilotChatToolWindowUtil {
 
         LOG.warn("selectChatModeItem: All approaches failed")
         return false
+    }
+
+    /**
+     * Fire action event on a combo box to trigger listeners.
+     * Tries multiple approaches to ensure the mode change is properly handled.
+     */
+    private fun fireComboBoxActionEvent(comboBox: Component) {
+        // Try Copilot-specific method names first
+        for (methodName in listOf("onModeSelected", "onModeChanged", "modeChanged", "fireSelectionChanged")) {
+            try {
+                comboBox.javaClass.getMethod(methodName).invoke(comboBox)
+                LOG.info("fireComboBoxActionEvent: $methodName() succeeded")
+                return
+            } catch (e: NoSuchMethodException) {
+                // Try next
+            } catch (e: Exception) {
+                LOG.debug("fireComboBoxActionEvent: $methodName() failed: ${e.message}")
+            }
+        }
+
+        // Try fireActionEvent
+        try {
+            comboBox.javaClass.getMethod("fireActionEvent").invoke(comboBox)
+            LOG.info("fireComboBoxActionEvent: fireActionEvent() succeeded")
+            return
+        } catch (e: NoSuchMethodException) {
+            // Try next
+        } catch (e: Exception) {
+            LOG.debug("fireComboBoxActionEvent: fireActionEvent() failed: ${e.message}")
+        }
+
+        // Try to invoke action listeners directly
+        try {
+            val listenersMethod = comboBox.javaClass.getMethod("getActionListeners")
+            val listeners = listenersMethod.invoke(comboBox) as? Array<*>
+            if (listeners != null && listeners.isNotEmpty()) {
+                val actionEvent = java.awt.event.ActionEvent(
+                    comboBox,
+                    java.awt.event.ActionEvent.ACTION_PERFORMED,
+                    "comboBoxChanged"
+                )
+                for (listener in listeners) {
+                    if (listener != null) {
+                        try {
+                            listener.javaClass.getMethod("actionPerformed", java.awt.event.ActionEvent::class.java)
+                                .invoke(listener, actionEvent)
+                            LOG.debug("fireComboBoxActionEvent: Invoked listener ${listener.javaClass.simpleName}")
+                        } catch (e: Exception) {
+                            // Continue with next listener
+                        }
+                    }
+                }
+                LOG.info("fireComboBoxActionEvent: Invoked ${listeners.size} action listeners")
+                return
+            }
+        } catch (e: Exception) {
+            LOG.debug("fireComboBoxActionEvent: getActionListeners failed: ${e.message}")
+        }
+
+        // Try ItemListener approach
+        try {
+            val listenersMethod = comboBox.javaClass.getMethod("getItemListeners")
+            val listeners = listenersMethod.invoke(comboBox) as? Array<*>
+            if (listeners != null && listeners.isNotEmpty()) {
+                val selectedItem = comboBox.javaClass.getMethod("getSelectedItem").invoke(comboBox)
+                val itemEvent = java.awt.event.ItemEvent(
+                    comboBox as java.awt.ItemSelectable,
+                    java.awt.event.ItemEvent.ITEM_STATE_CHANGED,
+                    selectedItem,
+                    java.awt.event.ItemEvent.SELECTED
+                )
+                for (listener in listeners) {
+                    if (listener != null) {
+                        try {
+                            listener.javaClass.getMethod("itemStateChanged", java.awt.event.ItemEvent::class.java)
+                                .invoke(listener, itemEvent)
+                            LOG.debug("fireComboBoxActionEvent: Invoked item listener ${listener.javaClass.simpleName}")
+                        } catch (e: Exception) {
+                            // Continue with next listener
+                        }
+                    }
+                }
+                LOG.info("fireComboBoxActionEvent: Invoked ${listeners.size} item listeners")
+                return
+            }
+        } catch (e: Exception) {
+            LOG.debug("fireComboBoxActionEvent: getItemListeners failed: ${e.message}")
+        }
+
+        LOG.warn("fireComboBoxActionEvent: No event firing method worked")
     }
 
     fun setAskChatMode(project: Project): Boolean {
