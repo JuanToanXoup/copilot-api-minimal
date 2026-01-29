@@ -88,17 +88,36 @@ object ReflectionUtil {
     fun extractText(component: Any): String? {
         // Try getText() method first
         (invokeMethod(component, "getText") as? String)?.let {
-            if (it.isNotBlank()) return it
+            if (it.isNotBlank()) return cleanText(it)
         }
 
         // Try common field names
         for (fieldName in listOf("text", "content", "markdown")) {
             getStringField(component, fieldName)?.let {
-                if (it.isNotBlank()) return it
+                if (it.isNotBlank()) return cleanText(it)
             }
         }
 
         return null
+    }
+
+    /**
+     * Clean text by stripping HTML tags if present.
+     */
+    private fun cleanText(text: String): String {
+        if (!text.trimStart().startsWith("<")) {
+            return text
+        }
+        // Strip HTML tags and decode common entities
+        return text
+            .replace(Regex("<[^>]*>"), "")
+            .replace("&nbsp;", " ")
+            .replace("&#8217;", "'")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .trim()
     }
 
     /**

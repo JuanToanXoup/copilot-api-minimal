@@ -39,11 +39,11 @@ object CopilotClassNames {
     const val NEW_AGENT_SESSION_ACTION = "com.github.copilot.agent.window.actions.NewAgentSessionAction"
 
     // All message component class names for extraction
+    // Note: HTML_CONTENT_COMPONENT excluded as it contains the welcome message, not actual responses
     val MESSAGE_COMPONENTS = listOf(
         MARKDOWN_PANE,
         AGENT_MESSAGE_COMPONENT,
-        MESSAGE_CONTENT_PANEL,
-        HTML_CONTENT_COMPONENT
+        MESSAGE_CONTENT_PANEL
     )
 
     /**

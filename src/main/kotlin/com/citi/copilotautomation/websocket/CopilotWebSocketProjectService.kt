@@ -137,6 +137,10 @@ class CopilotWebSocketProjectService(
 
     fun getWebSocketServer(): CopilotWebSocketServer? = synchronized(serverLock) { server }
 
+    fun isServerRunning(): Boolean = synchronized(serverLock) { server?.isRunning() ?: false }
+
+    fun getConnectionCount(): Int = synchronized(serverLock) { server?.getConnectionCount() ?: 0 }
+
     override fun dispose() {
         stopServer()
     }

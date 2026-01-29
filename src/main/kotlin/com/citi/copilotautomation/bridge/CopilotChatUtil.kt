@@ -24,80 +24,89 @@ object CopilotChatUtil {
      * Send text to the Copilot chat input and trigger send.
      *
      * NOTE: The onSendTriggered callback is invoked on the EDT (Event Dispatch Thread).
+     * If already on the EDT, runs synchronously. Otherwise, uses invokeLater.
      *
      * @param project The current project
      * @param text The text to send to Copilot
      * @param onSendTriggered Callback invoked after send is triggered (on EDT), or null
      */
     fun sendToCopilotChat(project: Project, text: String, onSendTriggered: Runnable?) {
-        SwingUtilities.invokeLater {
-            try {
-                val toolWindow = ToolWindowManager.getInstance(project)
-                    .getToolWindow(CopilotClassNames.TOOL_WINDOW_ID)
-
-                if (toolWindow == null) {
-                    LOG.warn("sendToCopilotChat: Tool window not found")
-                    return@invokeLater
-                }
-
-                if (!toolWindow.isActive) {
-                    toolWindow.activate(null)
-                }
-
-                val content = toolWindow.contentManager.getContent(0)
-                if (content == null) {
-                    LOG.warn("sendToCopilotChat: No content in tool window")
-                    return@invokeLater
-                }
-
-                val chatInputResult = UIFinderUtil.findChatInputEx(content.component)
-                if (chatInputResult == null) {
-                    LOG.warn("sendToCopilotChat: Chat input not found")
-                    logAvailableInputComponents(content.component)
-                    return@invokeLater
-                }
-
-                LOG.info("sendToCopilotChat: Found ${chatInputResult.type}, class: ${chatInputResult.component.javaClass.name}")
-
-                // Set text - try multiple approaches
-                val textSet = when (chatInputResult.type) {
-                    UIFinderUtil.ChatInputResult.InputType.EDITOR -> {
-                        setTextOnEditor(project, chatInputResult.editor!!, text)
-                    }
-                    else -> {
-                        // Try direct setText first (works for JTextComponent subclasses)
-                        setTextDirect(chatInputResult.component, text)
-                    }
-                }
-
-                if (!textSet) {
-                    LOG.warn("sendToCopilotChat: Failed to set text")
-                    return@invokeLater
-                }
-
-                LOG.info("sendToCopilotChat: Text set, attempting to send...")
-
-                // Try to send
-                val sent = when (chatInputResult.type) {
-                    UIFinderUtil.ChatInputResult.InputType.EDITOR -> {
-                        trySendFromEditor(project, chatInputResult.component)
-                    }
-                    else -> {
-                        trySendViaEnterKey(chatInputResult.component) ||
-                            trySendViaButton(toolWindow.component)
-                    }
-                }
-
-                if (sent) {
-                    LOG.info("sendToCopilotChat: Message sent successfully")
-                    onSendTriggered?.run()
-                } else {
-                    LOG.error("sendToCopilotChat: Could not send message")
-                }
-
-            } catch (e: Exception) {
-                LOG.error("sendToCopilotChat: Exception", e)
+        if (SwingUtilities.isEventDispatchThread()) {
+            doSendToCopilotChat(project, text, onSendTriggered)
+        } else {
+            SwingUtilities.invokeLater {
+                doSendToCopilotChat(project, text, onSendTriggered)
             }
+        }
+    }
+
+    private fun doSendToCopilotChat(project: Project, text: String, onSendTriggered: Runnable?) {
+        try {
+            val toolWindow = ToolWindowManager.getInstance(project)
+                .getToolWindow(CopilotClassNames.TOOL_WINDOW_ID)
+
+            if (toolWindow == null) {
+                LOG.warn("doSendToCopilotChat: Tool window not found")
+                return
+            }
+
+            if (!toolWindow.isActive) {
+                toolWindow.activate(null)
+            }
+
+            val content = toolWindow.contentManager.getContent(0)
+            if (content == null) {
+                LOG.warn("doSendToCopilotChat: No content in tool window")
+                return
+            }
+
+            val chatInputResult = UIFinderUtil.findChatInputEx(content.component)
+            if (chatInputResult == null) {
+                LOG.warn("doSendToCopilotChat: Chat input not found")
+                logAvailableInputComponents(content.component)
+                return
+            }
+
+            LOG.info("doSendToCopilotChat: Found ${chatInputResult.type}, class: ${chatInputResult.component.javaClass.name}")
+
+            // Set text - try multiple approaches
+            val textSet = when (chatInputResult.type) {
+                UIFinderUtil.ChatInputResult.InputType.EDITOR -> {
+                    setTextOnEditor(project, chatInputResult.editor!!, text)
+                }
+                else -> {
+                    // Try direct setText first (works for JTextComponent subclasses)
+                    setTextDirect(chatInputResult.component, text)
+                }
+            }
+
+            if (!textSet) {
+                LOG.warn("doSendToCopilotChat: Failed to set text")
+                return
+            }
+
+            LOG.info("doSendToCopilotChat: Text set, attempting to send...")
+
+            // Try to send
+            val sent = when (chatInputResult.type) {
+                UIFinderUtil.ChatInputResult.InputType.EDITOR -> {
+                    trySendFromEditor(project, chatInputResult.component)
+                }
+                else -> {
+                    trySendViaEnterKey(chatInputResult.component) ||
+                        trySendViaButton(toolWindow.component)
+                }
+            }
+
+            if (sent) {
+                LOG.info("doSendToCopilotChat: Message sent successfully")
+                onSendTriggered?.run()
+            } else {
+                LOG.error("doSendToCopilotChat: Could not send message")
+            }
+
+        } catch (e: Exception) {
+            LOG.error("doSendToCopilotChat: Exception", e)
         }
     }
 

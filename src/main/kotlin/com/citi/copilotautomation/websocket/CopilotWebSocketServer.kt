@@ -217,6 +217,13 @@ class CopilotWebSocketServer(
         try {
             LOG.info("Executing prompt: '${prompt.take(70)}...'")
 
+            // Count existing messages BEFORE sending the prompt
+            var messageCountBefore = 0
+            ApplicationManager.getApplication().invokeAndWait {
+                messageCountBefore = getAllMarkdowns().size
+            }
+            LOG.debug("Message count before prompt: $messageCountBefore")
+
             ApplicationManager.getApplication().invokeAndWait {
                 CopilotChatUtil.sendToCopilotChat(project, prompt) {}
             }
@@ -254,8 +261,19 @@ class CopilotWebSocketServer(
             var finalResponse = ""
             ApplicationManager.getApplication().invokeAndWait {
                 val markdowns = getAllMarkdowns()
-                if (markdowns.isNotEmpty()) {
-                    finalResponse = markdowns.last()
+                LOG.debug("Message count after prompt: ${markdowns.size}")
+
+                // Only get messages that were added AFTER we sent the prompt
+                val newMessages = if (markdowns.size > messageCountBefore) {
+                    markdowns.subList(messageCountBefore, markdowns.size)
+                } else {
+                    markdowns
+                }
+
+                if (newMessages.isNotEmpty()) {
+                    // Get the last new message (the response)
+                    finalResponse = newMessages.last()
+                    LOG.debug("Extracted response (${finalResponse.length} chars)")
                 }
             }
             return finalResponse
@@ -421,6 +439,8 @@ class CopilotWebSocketServer(
     }
 
     fun isRunning(): Boolean = running.get()
+
+    fun getConnectionCount(): Int = connectionIds.size
 
     fun stopServer(): Boolean {
         LOG.info("CopilotWebSocketServer for project '${project.name}' stopping on port: $actualPort")
