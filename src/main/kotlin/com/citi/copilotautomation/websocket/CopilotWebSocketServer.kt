@@ -153,6 +153,8 @@ class CopilotWebSocketServer(
                 "inspectInput" -> handleInspectInput()
                 "inspectChatMode" -> handleInspectChatMode()
                 "inspectModels" -> handleInspectModels()
+                "startEventRecording" -> handleStartEventRecording()
+                "stopEventRecording" -> handleStopEventRecording()
                 else -> ResponseBuilder.error("error", port, "Unknown message type: $type")
             }
 
@@ -468,6 +470,107 @@ class CopilotWebSocketServer(
             LOG.warn("CLI command execution error: ${e.message}")
             ResponseBuilder.cliError(port, "Execution error: ${e.message}")
         }
+    }
+
+    // Event recording for debugging
+    private var eventListener: java.awt.event.AWTEventListener? = null
+    private val recordedEvents = mutableListOf<String>()
+
+    private fun handleStartEventRecording(): Map<String, Any?> {
+        return try {
+            recordedEvents.clear()
+
+            eventListener = java.awt.event.AWTEventListener { event ->
+                val source = event.source
+                val sourceClass = source?.javaClass?.simpleName ?: "null"
+                val sourceName = (source as? java.awt.Component)?.name ?: ""
+
+                val eventInfo = buildString {
+                    append("[${System.currentTimeMillis()}] ")
+                    append("${event.javaClass.simpleName} ")
+                    append("on $sourceClass")
+                    if (sourceName.isNotEmpty()) append(" ($sourceName)")
+                    append(": ")
+
+                    when (event) {
+                        is java.awt.event.MouseEvent -> {
+                            append("${getMouseEventType(event.id)} at (${event.x}, ${event.y}) button=${event.button}")
+                        }
+                        is java.awt.event.KeyEvent -> {
+                            append("${getKeyEventType(event.id)} keyCode=${event.keyCode} char='${event.keyChar}'")
+                        }
+                        is java.awt.event.ActionEvent -> {
+                            append("actionCommand='${event.actionCommand}'")
+                        }
+                        is java.awt.event.ItemEvent -> {
+                            append("stateChange=${if (event.stateChange == java.awt.event.ItemEvent.SELECTED) "SELECTED" else "DESELECTED"} item=${event.item}")
+                        }
+                        else -> append(event.toString().take(200))
+                    }
+                }
+
+                synchronized(recordedEvents) {
+                    recordedEvents.add(eventInfo)
+                    if (recordedEvents.size > 500) {
+                        recordedEvents.removeAt(0)
+                    }
+                }
+            }
+
+            val eventMask = java.awt.AWTEvent.MOUSE_EVENT_MASK or
+                    java.awt.AWTEvent.KEY_EVENT_MASK or
+                    java.awt.AWTEvent.ACTION_EVENT_MASK or
+                    java.awt.AWTEvent.ITEM_EVENT_MASK or
+                    java.awt.AWTEvent.FOCUS_EVENT_MASK
+
+            java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(eventListener, eventMask)
+
+            LOG.info("Started AWT event recording")
+            ResponseBuilder.success("startEventRecording", port, mapOf("message" to "Recording started. Interact with UI, then call stopEventRecording."))
+        } catch (e: Exception) {
+            LOG.error("Failed to start event recording: ${e.message}", e)
+            ResponseBuilder.error("startEventRecording", port, "Failed: ${e.message}")
+        }
+    }
+
+    private fun handleStopEventRecording(): Map<String, Any?> {
+        return try {
+            eventListener?.let {
+                java.awt.Toolkit.getDefaultToolkit().removeAWTEventListener(it)
+            }
+            eventListener = null
+
+            val events = synchronized(recordedEvents) {
+                recordedEvents.toList()
+            }
+
+            LOG.info("Stopped AWT event recording. Captured ${events.size} events.")
+            ResponseBuilder.success("stopEventRecording", port, mapOf(
+                "eventCount" to events.size,
+                "events" to events
+            ))
+        } catch (e: Exception) {
+            LOG.error("Failed to stop event recording: ${e.message}", e)
+            ResponseBuilder.error("stopEventRecording", port, "Failed: ${e.message}")
+        }
+    }
+
+    private fun getMouseEventType(id: Int): String = when (id) {
+        java.awt.event.MouseEvent.MOUSE_PRESSED -> "PRESSED"
+        java.awt.event.MouseEvent.MOUSE_RELEASED -> "RELEASED"
+        java.awt.event.MouseEvent.MOUSE_CLICKED -> "CLICKED"
+        java.awt.event.MouseEvent.MOUSE_ENTERED -> "ENTERED"
+        java.awt.event.MouseEvent.MOUSE_EXITED -> "EXITED"
+        java.awt.event.MouseEvent.MOUSE_MOVED -> "MOVED"
+        java.awt.event.MouseEvent.MOUSE_DRAGGED -> "DRAGGED"
+        else -> "UNKNOWN($id)"
+    }
+
+    private fun getKeyEventType(id: Int): String = when (id) {
+        java.awt.event.KeyEvent.KEY_PRESSED -> "PRESSED"
+        java.awt.event.KeyEvent.KEY_RELEASED -> "RELEASED"
+        java.awt.event.KeyEvent.KEY_TYPED -> "TYPED"
+        else -> "UNKNOWN($id)"
     }
 
     fun isRunning(): Boolean = running.get()
