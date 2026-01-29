@@ -282,7 +282,8 @@ object CopilotChatToolWindowUtil {
                 // Press Enter on the JList to confirm the selection
                 pressEnterOnComponent(popupList)
 
-                Thread.sleep(100)
+                // Wait 2 seconds before final Enter
+                Thread.sleep(2000)
 
                 // Press Enter again to fully commit
                 pressEnterOnComponent(popupList)
