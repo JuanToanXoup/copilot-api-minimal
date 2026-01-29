@@ -135,8 +135,19 @@ object UIDiagnostics {
 
         val content = toolWindow.contentManager.getContent(0) ?: return "No content"
 
-        val comboBox = ComponentFinder.findFirstByClassName(content.component, CopilotClassNames.CHAT_MODE_COMBO_BOX)
-            ?: return "ChatModeComboBox not found"
+        // Try all known class name variants
+        var comboBox: java.awt.Component? = null
+        var foundClassName = ""
+        for (className in CopilotClassNames.CHAT_MODE_COMBO_BOX_VARIANTS) {
+            comboBox = ComponentFinder.findFirstByClassName(content.component, className)
+            if (comboBox != null) {
+                foundClassName = className
+                break
+            }
+        }
+        if (comboBox == null) {
+            return "ChatModeComboBox not found (tried: ${CopilotClassNames.CHAT_MODE_COMBO_BOX_VARIANTS})"
+        }
 
         val sb = StringBuilder()
         sb.appendLine("=== ChatModeComboBox Inspection ===")

@@ -21,7 +21,13 @@ object CopilotClassNames {
     const val CHAT_TOOL_WINDOW_CONTAINER = "com.github.copilot.chat.window.CopilotChatToolWindow\$contentContainer\$1"
 
     // UI Components - Input
+    // Note: ChatModeComboBox location varies between Copilot versions
     const val CHAT_MODE_COMBO_BOX = "com.github.copilot.agent.chatMode.component.ChatModeComboBox"
+    val CHAT_MODE_COMBO_BOX_VARIANTS = listOf(
+        "com.github.copilot.agent.chatMode.component.ChatModeComboBox",
+        "com.github.copilot.chat.input.ChatModeComboBox",
+        "com.github.copilot.chat.ui.ChatModeComboBox"
+    )
     const val MODEL_PICK_PANEL = "com.github.copilot.chat.input.ModelPickPanel"
     const val AGENT_INPUT_TEXT_AREA = "com.github.copilot.agent.input.CopilotAgentInputTextArea"
     const val AGENT_INPUT_PANEL = "com.github.copilot.agent.input.CopilotAgentInputPanel"

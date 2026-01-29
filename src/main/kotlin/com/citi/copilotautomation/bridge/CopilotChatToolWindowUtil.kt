@@ -129,22 +129,30 @@ object CopilotChatToolWindowUtil {
             return false
         }
 
-        // Try tool window component first (more reliable)
+        // Try to find ChatModeComboBox using all known class name variants
         val toolWindowComponent = getToolWindowComponent(project)
-        var comboBox = if (toolWindowComponent != null) {
-            ComponentFinder.findFirstByClassName(toolWindowComponent, CopilotClassNames.CHAT_MODE_COMBO_BOX)
-        } else null
+        val chatPanel = getCopilotChatPanel(project)
+        var comboBox: Component? = null
 
-        // Fallback to chat panel
-        if (comboBox == null) {
-            val chatPanel = getCopilotChatPanel(project)
+        for (className in CopilotClassNames.CHAT_MODE_COMBO_BOX_VARIANTS) {
+            if (toolWindowComponent != null) {
+                comboBox = ComponentFinder.findFirstByClassName(toolWindowComponent, className)
+                if (comboBox != null) {
+                    LOG.info("selectChatModeByName: Found combo box with class $className")
+                    break
+                }
+            }
             if (chatPanel != null) {
-                comboBox = ComponentFinder.findFirstByClassName(chatPanel, CopilotClassNames.CHAT_MODE_COMBO_BOX)
+                comboBox = ComponentFinder.findFirstByClassName(chatPanel, className)
+                if (comboBox != null) {
+                    LOG.info("selectChatModeByName: Found combo box with class $className")
+                    break
+                }
             }
         }
 
         if (comboBox == null) {
-            LOG.warn("selectChatModeByName: ChatModeComboBox not found")
+            LOG.warn("selectChatModeByName: ChatModeComboBox not found (tried: ${CopilotClassNames.CHAT_MODE_COMBO_BOX_VARIANTS})")
             return false
         }
 
