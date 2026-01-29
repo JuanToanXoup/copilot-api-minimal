@@ -266,8 +266,6 @@ object CopilotChatToolWindowUtil {
             simulateMouseClick(comboBox)
 
             // Give the popup time to appear
-            Thread.sleep(200)
-
             // Step 2: Find the popup's JList
             val popupList = findPopupJList()
             if (popupList != null) {
@@ -275,9 +273,6 @@ object CopilotChatToolWindowUtil {
 
                 // Set the selection on the list to highlight the item
                 popupList.selectedIndex = index
-                popupList.ensureIndexIsVisible(index)
-
-                Thread.sleep(100)
 
                 // Press Enter on the JList to confirm the selection
                 pressEnterOnComponent(popupList)
