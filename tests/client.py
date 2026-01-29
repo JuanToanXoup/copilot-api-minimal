@@ -68,13 +68,44 @@ class CopilotClient:
 
 
 def get_port():
-    """Get port from command line or use default."""
+    """Get port from command line, config file, or use default."""
     import argparse
+    import os
+
+    # Find the project config file
+    def find_config_port():
+        # Try relative to tests folder (parent directory)
+        tests_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(tests_dir)
+        config_path = os.path.join(project_root, ".citi-agent", "project-agent-config.json")
+
+        # Also try current working directory
+        if not os.path.exists(config_path):
+            config_path = os.path.join(os.getcwd(), ".citi-agent", "project-agent-config.json")
+
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    config = json.load(f)
+                    port = config.get("port")
+                    if port and port > 0:
+                        print(f"Using port {port} from {config_path}")
+                        return port
+            except Exception as e:
+                print(f"Warning: Could not read config file: {e}")
+
+        return None
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8765, help="WebSocket port")
+    parser.add_argument("--port", type=int, default=None, help="WebSocket port")
     parser.add_argument("--host", default="localhost", help="WebSocket host")
     parser.add_argument("--timeout", type=int, default=30, help="Timeout in seconds")
     args, _ = parser.parse_known_args()
+
+    # Priority: command line > config file > default
+    if args.port is None:
+        args.port = find_config_port() or 8765
+
     return args.host, args.port, args.timeout
 
 

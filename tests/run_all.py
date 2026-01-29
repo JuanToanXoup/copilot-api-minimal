@@ -4,6 +4,7 @@
 import subprocess
 import sys
 import os
+import json
 
 TESTS = [
     ("test_ping.py", "Ping/Pong"),
@@ -30,15 +31,41 @@ DESTRUCTIVE_TESTS = [
 ]
 
 
+def find_config_port():
+    """Find port from project config file."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    config_path = os.path.join(project_root, ".citi-agent", "project-agent-config.json")
+
+    if not os.path.exists(config_path):
+        config_path = os.path.join(os.getcwd(), ".citi-agent", "project-agent-config.json")
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                config = json.load(f)
+                port = config.get("port")
+                if port and port > 0:
+                    return port
+        except Exception:
+            pass
+    return None
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Run all Copilot API tests")
-    parser.add_argument("--port", type=int, default=8765, help="WebSocket port")
+    parser.add_argument("--port", type=int, default=None, help="WebSocket port")
     parser.add_argument("--host", default="localhost", help="WebSocket host")
     parser.add_argument("--skip-slow", action="store_true", help="Skip slow Copilot prompt tests")
     parser.add_argument("--skip-shutdown", action="store_true", help="Skip shutdown test")
     parser.add_argument("--only", help="Run only this test (e.g., test_ping.py)")
     args = parser.parse_args()
+
+    # Priority: command line > config file > default
+    if args.port is None:
+        args.port = find_config_port() or 8765
+        print(f"Using port {args.port} from config file")
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     results = []
