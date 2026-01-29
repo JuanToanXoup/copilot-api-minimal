@@ -247,147 +247,274 @@ object CopilotChatToolWindowUtil {
     }
 
     /**
-     * Select a specific item in the chat mode combo box.
+     * Select a specific item in the chat mode combo box by simulating a click.
      */
     private fun selectChatModeItem(comboBox: Component, item: Any, index: Int): Boolean {
-        // Get the ChatMode from the item
-        val chatMode = getChatModeFromItem(item)
+        LOG.info("selectChatModeItem: Selecting item at index $index via simulated click")
 
-        if (chatMode != null) {
-            LOG.info("selectChatModeItem: Got ChatMode: $chatMode")
-
-            // Use setSelectedMode(ChatMode) - this is the proper Copilot API
-            try {
-                val setSelectedModeMethod = comboBox.javaClass.methods.find {
-                    it.name == "setSelectedMode" && it.parameterCount == 1
-                }
-                if (setSelectedModeMethod != null) {
-                    setSelectedModeMethod.invoke(comboBox, chatMode)
-                    LOG.info("selectChatModeItem: setSelectedMode(ChatMode) succeeded")
-
-                    // Fire action event to trigger mode change listeners
-                    fireComboBoxActionEvent(comboBox)
-                    return true
-                }
-            } catch (e: Exception) {
-                LOG.warn("selectChatModeItem: setSelectedMode failed: ${e.message}", e)
-            }
-        } else {
-            LOG.warn("selectChatModeItem: Could not get ChatMode from item")
-        }
-
-        // Fallback: Try setSelectedItem with the full item
-        try {
-            comboBox.javaClass.getMethod("setSelectedItem", Any::class.java).invoke(comboBox, item)
-            LOG.info("selectChatModeItem: setSelectedItem succeeded")
-            fireComboBoxActionEvent(comboBox)
-            return true
-        } catch (e: Exception) {
-            LOG.debug("selectChatModeItem: setSelectedItem failed: ${e.message}")
-        }
-
-        // Fallback: Try setSelectedIndex
-        try {
-            comboBox.javaClass.getMethod("setSelectedIndex", Int::class.java).invoke(comboBox, index)
-            LOG.info("selectChatModeItem: setSelectedIndex succeeded")
-            fireComboBoxActionEvent(comboBox)
-            return true
-        } catch (e: Exception) {
-            LOG.debug("selectChatModeItem: setSelectedIndex failed: ${e.message}")
-        }
-
-        LOG.warn("selectChatModeItem: All approaches failed")
-        return false
+        // Simulate clicking the combo box to open the popup, then select the item
+        return simulateComboBoxSelection(comboBox, index)
     }
 
     /**
-     * Fire action event on a combo box to trigger listeners.
-     * Tries multiple approaches to ensure the mode change is properly handled.
+     * Simulate a real combo box selection by clicking to open and selecting the item.
      */
-    private fun fireComboBoxActionEvent(comboBox: Component) {
-        // Try Copilot-specific method names first
-        for (methodName in listOf("onModeSelected", "onModeChanged", "modeChanged", "fireSelectionChanged")) {
-            try {
-                comboBox.javaClass.getMethod(methodName).invoke(comboBox)
-                LOG.info("fireComboBoxActionEvent: $methodName() succeeded")
-                return
-            } catch (e: NoSuchMethodException) {
-                // Try next
-            } catch (e: Exception) {
-                LOG.debug("fireComboBoxActionEvent: $methodName() failed: ${e.message}")
+    private fun simulateComboBoxSelection(comboBox: Component, index: Int): Boolean {
+        try {
+            // Step 1: Click the combo box to open the popup
+            LOG.info("simulateComboBoxSelection: Clicking combo box to open popup")
+            simulateMouseClick(comboBox)
+
+            // Give the popup time to appear
+            Thread.sleep(100)
+
+            // Step 2: Find and click the item in the popup
+            val popup = findComboBoxPopup()
+            if (popup != null) {
+                LOG.info("simulateComboBoxSelection: Found popup, selecting item at index $index")
+                return selectPopupItem(popup, index)
+            }
+
+            // Fallback: Try using keyboard navigation
+            LOG.info("simulateComboBoxSelection: No popup found, trying keyboard selection")
+            return selectViaKeyboard(comboBox, index)
+
+        } catch (e: Exception) {
+            LOG.warn("simulateComboBoxSelection: Failed: ${e.message}", e)
+            return false
+        }
+    }
+
+    /**
+     * Simulate a mouse click on a component.
+     */
+    private fun simulateMouseClick(component: Component) {
+        val bounds = component.bounds
+        val centerX = bounds.width / 2
+        val centerY = bounds.height / 2
+
+        val pressEvent = java.awt.event.MouseEvent(
+            component,
+            java.awt.event.MouseEvent.MOUSE_PRESSED,
+            System.currentTimeMillis(),
+            java.awt.event.InputEvent.BUTTON1_DOWN_MASK,
+            centerX, centerY,
+            1, false, java.awt.event.MouseEvent.BUTTON1
+        )
+
+        val releaseEvent = java.awt.event.MouseEvent(
+            component,
+            java.awt.event.MouseEvent.MOUSE_RELEASED,
+            System.currentTimeMillis(),
+            0,
+            centerX, centerY,
+            1, false, java.awt.event.MouseEvent.BUTTON1
+        )
+
+        val clickEvent = java.awt.event.MouseEvent(
+            component,
+            java.awt.event.MouseEvent.MOUSE_CLICKED,
+            System.currentTimeMillis(),
+            0,
+            centerX, centerY,
+            1, false, java.awt.event.MouseEvent.BUTTON1
+        )
+
+        component.dispatchEvent(pressEvent)
+        component.dispatchEvent(releaseEvent)
+        component.dispatchEvent(clickEvent)
+
+        LOG.debug("simulateMouseClick: Dispatched click events to ${component.javaClass.simpleName}")
+    }
+
+    /**
+     * Find the popup menu/list for a combo box.
+     */
+    private fun findComboBoxPopup(): Component? {
+        // Look for popup in all windows
+        for (window in java.awt.Window.getWindows()) {
+            if (window.isVisible && window is javax.swing.JWindow) {
+                // Look for JList or similar in the popup
+                val list = findListInContainer(window)
+                if (list != null) {
+                    LOG.debug("findComboBoxPopup: Found list in JWindow")
+                    return list
+                }
+            }
+            if (window.isVisible && window.javaClass.simpleName.contains("Popup")) {
+                LOG.debug("findComboBoxPopup: Found popup window: ${window.javaClass.name}")
+                val list = findListInContainer(window)
+                if (list != null) return list
             }
         }
 
-        // Try fireActionEvent
-        try {
-            comboBox.javaClass.getMethod("fireActionEvent").invoke(comboBox)
-            LOG.info("fireComboBoxActionEvent: fireActionEvent() succeeded")
-            return
-        } catch (e: NoSuchMethodException) {
-            // Try next
-        } catch (e: Exception) {
-            LOG.debug("fireComboBoxActionEvent: fireActionEvent() failed: ${e.message}")
+        // Also check for heavyweight popups
+        for (window in java.awt.Window.getWindows()) {
+            if (window.isVisible) {
+                val list = findListInContainer(window)
+                if (list != null && isComboBoxPopupList(list)) {
+                    LOG.debug("findComboBoxPopup: Found combo popup list in ${window.javaClass.simpleName}")
+                    return list
+                }
+            }
         }
 
-        // Try to invoke action listeners directly
+        return null
+    }
+
+    /**
+     * Check if a list component is a combo box popup list.
+     */
+    private fun isComboBoxPopupList(component: Component): Boolean {
+        val className = component.javaClass.name.lowercase()
+        return className.contains("combobox") || className.contains("popup") || className.contains("list")
+    }
+
+    /**
+     * Find a JList or similar list component in a container.
+     */
+    private fun findListInContainer(container: java.awt.Container): Component? {
+        for (comp in container.components) {
+            if (comp is javax.swing.JList<*>) {
+                return comp
+            }
+            if (comp.javaClass.simpleName.contains("List")) {
+                return comp
+            }
+            if (comp is java.awt.Container) {
+                val found = findListInContainer(comp)
+                if (found != null) return found
+            }
+        }
+        return null
+    }
+
+    /**
+     * Select an item in a popup list.
+     */
+    private fun selectPopupItem(popup: Component, index: Int): Boolean {
         try {
-            val listenersMethod = comboBox.javaClass.getMethod("getActionListeners")
-            val listeners = listenersMethod.invoke(comboBox) as? Array<*>
-            if (listeners != null && listeners.isNotEmpty()) {
-                val actionEvent = java.awt.event.ActionEvent(
+            if (popup is javax.swing.JList<*>) {
+                popup.selectedIndex = index
+                // Simulate Enter key to confirm selection
+                val enterEvent = java.awt.event.KeyEvent(
+                    popup,
+                    java.awt.event.KeyEvent.KEY_PRESSED,
+                    System.currentTimeMillis(),
+                    0,
+                    java.awt.event.KeyEvent.VK_ENTER,
+                    '\n'
+                )
+                popup.dispatchEvent(enterEvent)
+                LOG.info("selectPopupItem: Selected index $index in JList")
+                return true
+            }
+
+            // Try clicking on the item at the index
+            val bounds = popup.bounds
+            val itemHeight = bounds.height / maxOf(1, getListItemCount(popup))
+            val clickY = (index * itemHeight) + (itemHeight / 2)
+
+            val clickEvent = java.awt.event.MouseEvent(
+                popup,
+                java.awt.event.MouseEvent.MOUSE_CLICKED,
+                System.currentTimeMillis(),
+                0,
+                bounds.width / 2, clickY,
+                1, false, java.awt.event.MouseEvent.BUTTON1
+            )
+            popup.dispatchEvent(clickEvent)
+            LOG.info("selectPopupItem: Clicked at y=$clickY in popup")
+            return true
+
+        } catch (e: Exception) {
+            LOG.warn("selectPopupItem: Failed: ${e.message}")
+            return false
+        }
+    }
+
+    /**
+     * Get item count from a list-like component.
+     */
+    private fun getListItemCount(list: Component): Int {
+        return try {
+            val method = list.javaClass.getMethod("getModel")
+            val model = method.invoke(list)
+            val sizeMethod = model.javaClass.getMethod("getSize")
+            sizeMethod.invoke(model) as? Int ?: 3
+        } catch (e: Exception) {
+            3 // Default assumption
+        }
+    }
+
+    /**
+     * Select item using keyboard navigation (fallback).
+     */
+    private fun selectViaKeyboard(comboBox: Component, targetIndex: Int): Boolean {
+        try {
+            // Get current index
+            val currentIndex = try {
+                comboBox.javaClass.getMethod("getSelectedIndex").invoke(comboBox) as? Int ?: 0
+            } catch (e: Exception) { 0 }
+
+            // Calculate how many times to press up/down
+            val diff = targetIndex - currentIndex
+
+            if (diff == 0) {
+                LOG.info("selectViaKeyboard: Already at target index")
+                return true
+            }
+
+            val keyCode = if (diff > 0) java.awt.event.KeyEvent.VK_DOWN else java.awt.event.KeyEvent.VK_UP
+            val steps = kotlin.math.abs(diff)
+
+            LOG.info("selectViaKeyboard: Pressing ${if (diff > 0) "DOWN" else "UP"} $steps times")
+
+            // Request focus
+            comboBox.requestFocusInWindow()
+            Thread.sleep(50)
+
+            // Press arrow keys
+            for (i in 0 until steps) {
+                val keyPress = java.awt.event.KeyEvent(
                     comboBox,
-                    java.awt.event.ActionEvent.ACTION_PERFORMED,
-                    "comboBoxChanged"
+                    java.awt.event.KeyEvent.KEY_PRESSED,
+                    System.currentTimeMillis(),
+                    0,
+                    keyCode,
+                    java.awt.event.KeyEvent.CHAR_UNDEFINED
                 )
-                for (listener in listeners) {
-                    if (listener != null) {
-                        try {
-                            listener.javaClass.getMethod("actionPerformed", java.awt.event.ActionEvent::class.java)
-                                .invoke(listener, actionEvent)
-                            LOG.debug("fireComboBoxActionEvent: Invoked listener ${listener.javaClass.simpleName}")
-                        } catch (e: Exception) {
-                            // Continue with next listener
-                        }
-                    }
-                }
-                LOG.info("fireComboBoxActionEvent: Invoked ${listeners.size} action listeners")
-                return
-            }
-        } catch (e: Exception) {
-            LOG.debug("fireComboBoxActionEvent: getActionListeners failed: ${e.message}")
-        }
-
-        // Try ItemListener approach
-        try {
-            val listenersMethod = comboBox.javaClass.getMethod("getItemListeners")
-            val listeners = listenersMethod.invoke(comboBox) as? Array<*>
-            if (listeners != null && listeners.isNotEmpty()) {
-                val selectedItem = comboBox.javaClass.getMethod("getSelectedItem").invoke(comboBox)
-                val itemEvent = java.awt.event.ItemEvent(
-                    comboBox as java.awt.ItemSelectable,
-                    java.awt.event.ItemEvent.ITEM_STATE_CHANGED,
-                    selectedItem,
-                    java.awt.event.ItemEvent.SELECTED
+                val keyRelease = java.awt.event.KeyEvent(
+                    comboBox,
+                    java.awt.event.KeyEvent.KEY_RELEASED,
+                    System.currentTimeMillis(),
+                    0,
+                    keyCode,
+                    java.awt.event.KeyEvent.CHAR_UNDEFINED
                 )
-                for (listener in listeners) {
-                    if (listener != null) {
-                        try {
-                            listener.javaClass.getMethod("itemStateChanged", java.awt.event.ItemEvent::class.java)
-                                .invoke(listener, itemEvent)
-                            LOG.debug("fireComboBoxActionEvent: Invoked item listener ${listener.javaClass.simpleName}")
-                        } catch (e: Exception) {
-                            // Continue with next listener
-                        }
-                    }
-                }
-                LOG.info("fireComboBoxActionEvent: Invoked ${listeners.size} item listeners")
-                return
+                comboBox.dispatchEvent(keyPress)
+                comboBox.dispatchEvent(keyRelease)
+                Thread.sleep(30)
             }
-        } catch (e: Exception) {
-            LOG.debug("fireComboBoxActionEvent: getItemListeners failed: ${e.message}")
-        }
 
-        LOG.warn("fireComboBoxActionEvent: No event firing method worked")
+            // Press Enter to confirm
+            val enterPress = java.awt.event.KeyEvent(
+                comboBox,
+                java.awt.event.KeyEvent.KEY_PRESSED,
+                System.currentTimeMillis(),
+                0,
+                java.awt.event.KeyEvent.VK_ENTER,
+                '\n'
+            )
+            comboBox.dispatchEvent(enterPress)
+
+            LOG.info("selectViaKeyboard: Keyboard selection completed")
+            return true
+
+        } catch (e: Exception) {
+            LOG.warn("selectViaKeyboard: Failed: ${e.message}")
+            return false
+        }
     }
 
     fun setAskChatMode(project: Project): Boolean {
