@@ -7,7 +7,7 @@ An IntelliJ IDEA plugin that provides a WebSocket API for automating GitHub Copi
 This plugin exposes a WebSocket server that allows external applications to:
 - Send prompts to GitHub Copilot Chat
 - Control chat modes (Ask/Agent)
-- Switch between AI models (GPT-4o, Claude Sonnet 4, Gemini Pro)
+- Switch between AI models (GPT-4o, GPT-4.1, Claude Sonnet 4, Gemini 2.5 Pro)
 - Execute CLI commands
 - Manage chat sessions
 
@@ -104,7 +104,12 @@ All messages are JSON objects with a `type` field.
 
 **Switch to GPT-4o:**
 ```json
-{"type": "setModelGPT"}
+{"type": "setModelGPT4o"}
+```
+
+**Switch to GPT-4.1:**
+```json
+{"type": "setModelGPT41"}
 ```
 
 **Switch to Claude Sonnet 4:**
@@ -112,7 +117,7 @@ All messages are JSON objects with a `type` field.
 {"type": "setModelClaudeSonnet4"}
 ```
 
-**Switch to Gemini Pro:**
+**Switch to Gemini 2.5 Pro:**
 ```json
 {"type": "setModelGeminiPro"}
 ```
@@ -157,6 +162,16 @@ Allowed commands: `ls`, `pwd`, `whoami`, `date`, `echo`, `cat`, `uptime`, `find`
 {"type": "inspectInput"}
 ```
 
+**Inspect chat mode options:**
+```json
+{"type": "inspectChatMode"}
+```
+
+**Inspect available models:**
+```json
+{"type": "inspectModels"}
+```
+
 ### Server Control
 
 **Shutdown server:**
@@ -171,23 +186,49 @@ ping → pong
 
 ## Testing
 
-A Python test script is included:
+A comprehensive Python test suite is included in the `tests/` folder:
 
 ```bash
 # Install dependency
 pip install websocket-client
 
 # Run all tests
-python test_copilot_api.py
+python tests/run_all.py --port 8765
 
 # Skip slow Copilot prompt tests
-python test_copilot_api.py --skip-copilot
+python tests/run_all.py --port 8765 --skip-slow
 
-# Use custom port
-python test_copilot_api.py --port 9000
+# Skip shutdown test (keep server running)
+python tests/run_all.py --port 8765 --skip-shutdown
 
-# Keep server running after tests
-python test_copilot_api.py --skip-shutdown
+# Run a specific test only
+python tests/run_all.py --port 8765 --only test_ping.py
+```
+
+### Individual Test Files
+
+| Test File | Description |
+|-----------|-------------|
+| `test_ping.py` | Ping/pong connectivity |
+| `test_set_ask_mode.py` | Set Ask chat mode |
+| `test_set_agent_mode.py` | Set Agent chat mode |
+| `test_set_model_gpt.py` | Set model to GPT-4o |
+| `test_set_model_gpt41.py` | Set model to GPT-4.1 |
+| `test_set_model_claude.py` | Set model to Claude Sonnet 4 |
+| `test_set_model_gemini.py` | Set model to Gemini 2.5 Pro |
+| `test_new_session.py` | Start new agent session |
+| `test_get_current_prompt.py` | Get current prompt |
+| `test_get_pending_prompts.py` | Get pending prompts queue |
+| `test_cli_command.py` | Execute CLI command |
+| `test_diagnose_ui.py` | Run UI diagnostics |
+| `test_inspect_input.py` | Inspect input component |
+| `test_copilot_prompt.py` | Full prompt/response cycle (slow) |
+| `test_shutdown.py` | Shutdown server (destructive) |
+
+Run individual tests directly:
+```bash
+python tests/test_ping.py --port 8765
+python tests/test_set_model_gpt41.py --port 8765
 ```
 
 ## Development
