@@ -266,13 +266,19 @@ object CopilotChatToolWindowUtil {
             simulateMouseClick(comboBox)
 
             // Give the popup time to appear
-            Thread.sleep(100)
+            Thread.sleep(150)
 
             // Step 2: Find and click the item in the popup
             val popup = findComboBoxPopup()
             if (popup != null) {
                 LOG.info("simulateComboBoxSelection: Found popup, selecting item at index $index")
-                return selectPopupItem(popup, index)
+                selectPopupItem(popup, index)
+
+                // Step 3: Press Enter on combo box to confirm selection
+                Thread.sleep(100)
+                LOG.info("simulateComboBoxSelection: Pressing Enter to confirm selection")
+                pressEnterKey(comboBox)
+                return true
             }
 
             // Fallback: Try using keyboard navigation
@@ -283,6 +289,31 @@ object CopilotChatToolWindowUtil {
             LOG.warn("simulateComboBoxSelection: Failed: ${e.message}", e)
             return false
         }
+    }
+
+    /**
+     * Press Enter key on a component.
+     */
+    private fun pressEnterKey(component: Component) {
+        val enterPress = java.awt.event.KeyEvent(
+            component,
+            java.awt.event.KeyEvent.KEY_PRESSED,
+            System.currentTimeMillis(),
+            0,
+            java.awt.event.KeyEvent.VK_ENTER,
+            '\n'
+        )
+        val enterRelease = java.awt.event.KeyEvent(
+            component,
+            java.awt.event.KeyEvent.KEY_RELEASED,
+            System.currentTimeMillis(),
+            0,
+            java.awt.event.KeyEvent.VK_ENTER,
+            '\n'
+        )
+        component.dispatchEvent(enterPress)
+        component.dispatchEvent(enterRelease)
+        LOG.debug("pressEnterKey: Dispatched Enter key to ${component.javaClass.simpleName}")
     }
 
     /**
