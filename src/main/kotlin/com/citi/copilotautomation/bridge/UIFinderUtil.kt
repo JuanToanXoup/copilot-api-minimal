@@ -64,26 +64,37 @@ object UIFinderUtil {
         // FIRST: Look specifically for the Copilot input text area
         val copilotInput = ComponentFinder.findFirstByClassName(comp, CopilotClassNames.AGENT_INPUT_TEXT_AREA)
         if (copilotInput != null) {
-            LOG.info("findChatInputEx: Found CopilotAgentInputTextArea")
+            LOG.info("findChatInputEx: Found CopilotAgentInputTextArea, class: ${copilotInput.javaClass.name}")
 
-            // Check if it's a JTextComponent
+            // The CopilotAgentInputTextArea usually contains an EditorComponentImpl
+            // Search within it first
+            if (copilotInput is Container) {
+                val editorInside = ComponentFinder.findFirstByType<EditorComponentImpl>(copilotInput)
+                if (editorInside != null) {
+                    LOG.info("findChatInputEx: Found EditorComponentImpl inside CopilotAgentInputTextArea")
+                    return ChatInputResult(editorInside, editorInside.editor, ChatInputResult.InputType.EDITOR)
+                }
+            }
+
+            // Check if it's a JTextComponent directly
             if (copilotInput is JTextComponent) {
+                LOG.info("findChatInputEx: CopilotAgentInputTextArea is JTextComponent")
                 return ChatInputResult(copilotInput, null, ChatInputResult.InputType.TEXT_COMPONENT)
             }
 
-            // Try to find editor inside it
+            // Log what's inside for debugging
             if (copilotInput is Container) {
-                findEditorInContainer(copilotInput)?.let { return it }
+                LOG.info("findChatInputEx: CopilotAgentInputTextArea children: ${copilotInput.components.map { it.javaClass.name }}")
             }
 
-            // Return as generic text component
+            // Return as generic - will likely fail but lets us see the logs
             return ChatInputResult(copilotInput, null, ChatInputResult.InputType.TEXT_COMPONENT)
         }
 
-        // SECOND: Look for IntelliJ Editor component
+        // SECOND: Look for IntelliJ Editor component anywhere in the tree
         val editorComponent = ComponentFinder.findFirstByType<EditorComponentImpl>(comp)
         if (editorComponent != null) {
-            LOG.debug("findChatInputEx: Found EditorComponentImpl")
+            LOG.info("findChatInputEx: Found EditorComponentImpl directly")
             return ChatInputResult(editorComponent, editorComponent.editor, ChatInputResult.InputType.EDITOR)
         }
 
@@ -92,11 +103,11 @@ object UIFinderUtil {
             c is JTextArea && !c.javaClass.name.contains("HtmlContent")
         }
         if (textArea != null) {
-            LOG.debug("findChatInputEx: Found JTextArea: ${textArea.javaClass.name}")
+            LOG.info("findChatInputEx: Found JTextArea: ${textArea.javaClass.name}")
             return ChatInputResult(textArea, null, ChatInputResult.InputType.TEXT_AREA)
         }
 
-        LOG.debug("findChatInputEx: No chat input found")
+        LOG.warn("findChatInputEx: No chat input found")
         return null
     }
 

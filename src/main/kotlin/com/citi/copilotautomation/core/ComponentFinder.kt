@@ -4,6 +4,8 @@ import com.intellij.openapi.diagnostic.Logger
 import java.awt.Component
 import java.awt.Container
 
+// Note: ReflectionUtil is in the same package, no import needed
+
 /**
  * Unified component tree traversal utility.
  * Replaces duplicated traversal logic across multiple files.
