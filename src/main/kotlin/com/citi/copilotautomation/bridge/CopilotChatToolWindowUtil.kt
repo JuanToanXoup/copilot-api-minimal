@@ -266,52 +266,54 @@ object CopilotChatToolWindowUtil {
             simulateMouseClick(comboBox)
 
             // Give the popup time to appear
-            Thread.sleep(150)
+            Thread.sleep(200)
 
             // Step 2: Find the popup's JList
             val popupList = findPopupJList()
             if (popupList != null) {
-                LOG.info("simulateComboBoxSelection: Found popup JList, selecting index $index")
+                LOG.info("simulateComboBoxSelection: Found popup JList, clicking item at index $index")
 
-                // Get the item at the index from the combo box
-                val item = try {
-                    comboBox.javaClass.getMethod("getItemAt", Int::class.java).invoke(comboBox, index)
-                } catch (e: Exception) { null }
+                // Get the cell bounds for the item
+                val cellBounds = popupList.getCellBounds(index, index)
+                if (cellBounds != null) {
+                    val clickX = cellBounds.x + cellBounds.width / 2
+                    val clickY = cellBounds.y + cellBounds.height / 2
 
-                // Set the selection on BOTH the list AND the combo box
-                popupList.selectedIndex = index
+                    LOG.info("simulateComboBoxSelection: Cell bounds for index $index: $cellBounds, clicking at ($clickX, $clickY)")
 
-                // Set the selected item/index on the combo box itself
-                if (item != null) {
-                    try {
-                        comboBox.javaClass.getMethod("setSelectedItem", Any::class.java).invoke(comboBox, item)
-                        LOG.info("simulateComboBoxSelection: Set selected item on combo box")
-                    } catch (e: Exception) {
-                        LOG.debug("simulateComboBoxSelection: setSelectedItem failed: ${e.message}")
-                    }
+                    // Dispatch MOUSE_PRESSED
+                    val pressEvent = java.awt.event.MouseEvent(
+                        popupList,
+                        java.awt.event.MouseEvent.MOUSE_PRESSED,
+                        System.currentTimeMillis(),
+                        java.awt.event.InputEvent.BUTTON1_DOWN_MASK,
+                        clickX, clickY,
+                        1, false, java.awt.event.MouseEvent.BUTTON1
+                    )
+                    popupList.dispatchEvent(pressEvent)
+
+                    Thread.sleep(50)
+
+                    // Dispatch MOUSE_RELEASED - this is what triggers selection in BasicComboPopup
+                    val releaseEvent = java.awt.event.MouseEvent(
+                        popupList,
+                        java.awt.event.MouseEvent.MOUSE_RELEASED,
+                        System.currentTimeMillis(),
+                        0,
+                        clickX, clickY,
+                        1, false, java.awt.event.MouseEvent.BUTTON1
+                    )
+                    popupList.dispatchEvent(releaseEvent)
+
+                    LOG.info("simulateComboBoxSelection: Dispatched press and release events to JList")
+                    return true
+                } else {
+                    LOG.warn("simulateComboBoxSelection: Could not get cell bounds for index $index")
                 }
-
-                try {
-                    comboBox.javaClass.getMethod("setSelectedIndex", Int::class.java).invoke(comboBox, index)
-                    LOG.info("simulateComboBoxSelection: Set selected index on combo box")
-                } catch (e: Exception) {
-                    LOG.debug("simulateComboBoxSelection: setSelectedIndex failed: ${e.message}")
-                }
-
-                // Small delay then hide the popup
-                Thread.sleep(50)
-                hideComboBoxPopup(comboBox)
-
-                // Fire action performed to notify listeners
-                Thread.sleep(50)
-                fireActionPerformed(comboBox)
-
-                LOG.info("simulateComboBoxSelection: Selection committed")
-                return true
             }
 
             // Fallback: Try using keyboard navigation on the combo box
-            LOG.info("simulateComboBoxSelection: No popup JList found, trying keyboard selection")
+            LOG.info("simulateComboBoxSelection: No popup JList found or no cell bounds, trying keyboard selection")
             return selectViaKeyboard(comboBox, index)
 
         } catch (e: Exception) {
