@@ -266,35 +266,110 @@ object CopilotChatToolWindowUtil {
             simulateMouseClick(comboBox)
 
             // Give the popup time to appear
-            // Step 2: Find the popup's JList
-            val popupList = findPopupJList()
+            Thread.sleep(200)
+
+            // Step 2: Find the popup's list (MyList or JList)
+            val popupList = findPopupList()
             if (popupList != null) {
-                LOG.info("simulateComboBoxSelection: Found popup JList, selecting index $index and pressing Enter")
+                LOG.info("simulateComboBoxSelection: Found popup list (${popupList.javaClass.simpleName}), clicking item at index $index")
 
-                // Set the selection on the list to highlight the item
-                popupList.selectedIndex = index
+                // Get cell bounds for the item
+                val cellBounds = if (popupList is javax.swing.JList<*>) {
+                    popupList.getCellBounds(index, index)
+                } else {
+                    // Try reflection for MyList or other custom lists
+                    try {
+                        popupList.javaClass.getMethod("getCellBounds", Int::class.java, Int::class.java)
+                            .invoke(popupList, index, index) as? java.awt.Rectangle
+                    } catch (e: Exception) {
+                        LOG.debug("Could not get cell bounds via reflection: ${e.message}")
+                        null
+                    }
+                }
 
-                // Press Enter on the JList to confirm the selection
-                pressEnterOnComponent(popupList)
+                if (cellBounds != null) {
+                    val clickX = cellBounds.x + cellBounds.width / 2
+                    val clickY = cellBounds.y + cellBounds.height / 2
 
-                // Wait 2 seconds before final Enter
-                Thread.sleep(2000)
+                    LOG.info("simulateComboBoxSelection: Clicking at ($clickX, $clickY) for index $index")
 
-                // Press Enter again to fully commit
-                pressEnterOnComponent(popupList)
+                    // Dispatch MOUSE_PRESSED
+                    val pressEvent = java.awt.event.MouseEvent(
+                        popupList,
+                        java.awt.event.MouseEvent.MOUSE_PRESSED,
+                        System.currentTimeMillis(),
+                        java.awt.event.InputEvent.BUTTON1_DOWN_MASK,
+                        clickX, clickY,
+                        1, false, java.awt.event.MouseEvent.BUTTON1
+                    )
+                    popupList.dispatchEvent(pressEvent)
 
-                LOG.info("simulateComboBoxSelection: Pressed Enter twice on JList")
-                return true
+                    Thread.sleep(50)
+
+                    // Dispatch MOUSE_RELEASED - this triggers the selection
+                    val releaseEvent = java.awt.event.MouseEvent(
+                        popupList,
+                        java.awt.event.MouseEvent.MOUSE_RELEASED,
+                        System.currentTimeMillis(),
+                        0,
+                        clickX, clickY,
+                        1, false, java.awt.event.MouseEvent.BUTTON1
+                    )
+                    popupList.dispatchEvent(releaseEvent)
+
+                    LOG.info("simulateComboBoxSelection: Dispatched mouse press/release to popup list")
+                    return true
+                } else {
+                    LOG.warn("simulateComboBoxSelection: Could not get cell bounds for index $index")
+                }
             }
 
             // Fallback: Try using keyboard navigation on the combo box
-            LOG.info("simulateComboBoxSelection: No popup JList found, trying keyboard selection")
+            LOG.info("simulateComboBoxSelection: No popup list found, trying keyboard selection")
             return selectViaKeyboard(comboBox, index)
 
         } catch (e: Exception) {
             LOG.warn("simulateComboBoxSelection: Failed: ${e.message}", e)
             return false
         }
+    }
+
+    /**
+     * Find the popup list component (MyList, JList, or similar).
+     */
+    private fun findPopupList(): Component? {
+        for (window in java.awt.Window.getWindows()) {
+            if (window.isVisible) {
+                val list = findListComponentInContainer(window)
+                if (list != null) {
+                    LOG.debug("findPopupList: Found ${list.javaClass.simpleName} in ${window.javaClass.simpleName}")
+                    return list
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Recursively find a list component (MyList, JList, etc.) in a container.
+     */
+    private fun findListComponentInContainer(container: java.awt.Container): Component? {
+        for (comp in container.components) {
+            // Check for MyList or any JList
+            val className = comp.javaClass.simpleName
+            if (className == "MyList" || comp is javax.swing.JList<*>) {
+                return comp
+            }
+            // Check class name contains "List" but not "Listener"
+            if (className.contains("List") && !className.contains("Listener")) {
+                return comp
+            }
+            if (comp is java.awt.Container) {
+                val found = findListComponentInContainer(comp)
+                if (found != null) return found
+            }
+        }
+        return null
     }
 
     /**
