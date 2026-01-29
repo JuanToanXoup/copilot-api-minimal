@@ -289,9 +289,26 @@ src/main/kotlin/com/citi/
 - Verify Copilot is authenticated and working
 - Try running `diagnoseUI` command to check UI state
 
+### Chat mode or model selection not working
+- Different Copilot plugin versions use different internal class names
+- Run `inspectChatMode` or `inspectModels` to diagnose
+- The plugin supports multiple class name variants automatically
+- If a new variant is needed, check the class name with **Tools → Internal Actions → UI → UI Inspector**
+
 ### Tool window shows "indexes being built"
 - This is fixed in recent versions with `DumbAware` support
 - If persists, wait for indexing to complete
+
+## Copilot Version Compatibility
+
+This plugin uses reflection to interact with GitHub Copilot's internal UI components. It supports multiple Copilot plugin versions by checking for known class name variants:
+
+| Component | Known Class Names |
+|-----------|-------------------|
+| Chat Mode Selector | `ChatModeComboBox` in `agent.chatMode.component`, `chat.input`, or `chat.ui` packages |
+| Model Picker | `ModelPickPanel` in `chat.input` package |
+
+If the Copilot plugin updates and changes internal class names, use the diagnostic commands to identify the new names.
 
 ## License
 
