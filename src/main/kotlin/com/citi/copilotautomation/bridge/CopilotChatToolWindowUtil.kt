@@ -120,42 +120,179 @@ object CopilotChatToolWindowUtil {
     // =========================================================================
 
     /**
-     * Select a chat mode by name from the ChatModeComboBox.
+     * Select a chat mode by matching its display name.
+     * The ChatModeComboBox uses ChatModeItem$Mode objects.
      */
-    private fun selectChatModeByName(project: Project, modeName: String, fallbackIndex: Int): Boolean {
+    private fun selectChatModeByName(project: Project, modeName: String): Boolean {
         if (!activateCopilotChatToolWindow(project)) {
             LOG.warn("selectChatModeByName: Failed to activate tool window")
             return false
         }
 
-        val chatPanel = getCopilotChatPanel(project)
-        if (chatPanel == null) {
-            LOG.warn("selectChatModeByName: Chat panel not found")
-            return false
+        // Try tool window component first (more reliable)
+        val toolWindowComponent = getToolWindowComponent(project)
+        var comboBox = if (toolWindowComponent != null) {
+            ComponentFinder.findFirstByClassName(toolWindowComponent, CopilotClassNames.CHAT_MODE_COMBO_BOX)
+        } else null
+
+        // Fallback to chat panel
+        if (comboBox == null) {
+            val chatPanel = getCopilotChatPanel(project)
+            if (chatPanel != null) {
+                comboBox = ComponentFinder.findFirstByClassName(chatPanel, CopilotClassNames.CHAT_MODE_COMBO_BOX)
+            }
         }
 
-        val comboBox = ComponentFinder.findFirstByClassName(chatPanel, CopilotClassNames.CHAT_MODE_COMBO_BOX)
         if (comboBox == null) {
             LOG.warn("selectChatModeByName: ChatModeComboBox not found")
             return false
         }
 
-        // Try to select by name first
-        if (selectComboBoxItemByName(comboBox, modeName)) {
-            LOG.debug("selectChatModeByName: Selected mode '$modeName' by name")
-            return true
+        LOG.info("selectChatModeByName: Looking for mode '$modeName'")
+
+        // Find the item that matches the name
+        val itemCount = ReflectionUtil.getItemCount(comboBox)
+        if (itemCount <= 0) {
+            LOG.warn("selectChatModeByName: No items in combo box")
+            return false
         }
 
-        // Fallback to index
-        return selectComboBoxByIndex(comboBox, fallbackIndex, "ChatModeComboBox")
+        for (i in 0 until itemCount) {
+            val item = ReflectionUtil.getItemAt(comboBox, i) ?: continue
+            val itemName = getItemDisplayName(item)
+
+            LOG.debug("selectChatModeByName: Item $i = '$itemName'")
+
+            if (itemName.equals(modeName, ignoreCase = true) || itemName.contains(modeName, ignoreCase = true)) {
+                LOG.info("selectChatModeByName: Found '$modeName' at index $i (name: '$itemName')")
+                return selectChatModeItem(comboBox, item, i)
+            }
+        }
+
+        LOG.warn("selectChatModeByName: Mode '$modeName' not found in combo box")
+        return false
+    }
+
+    /**
+     * Get the display name and ChatMode from a combo box item.
+     * ChatModeItem$Mode has getMode() which returns a ChatMode with id/name properties.
+     */
+    private fun getItemDisplayName(item: Any): String {
+        // For ChatModeItem$Mode, get the ChatMode and extract its name
+        try {
+            val chatMode = item.javaClass.getMethod("getMode").invoke(item)
+            if (chatMode != null) {
+                // Try to get name or id from ChatMode
+                for (methodName in listOf("getName", "getId", "name", "id")) {
+                    try {
+                        val result = chatMode.javaClass.getMethod(methodName).invoke(chatMode)
+                        if (result != null && result.toString().isNotBlank()) {
+                            return result.toString()
+                        }
+                    } catch (e: Exception) {
+                        // Try next
+                    }
+                }
+                // Try fields
+                for (fieldName in listOf("name", "id")) {
+                    try {
+                        val field = chatMode.javaClass.getDeclaredField(fieldName)
+                        field.isAccessible = true
+                        val value = field.get(chatMode)
+                        if (value != null && value.toString().isNotBlank()) {
+                            return value.toString()
+                        }
+                    } catch (e: Exception) {
+                        // Try next
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            LOG.debug("getItemDisplayName: getMode() failed: ${e.message}")
+        }
+
+        // Fallback to standard methods
+        for (methodName in listOf("getName", "getDisplayName", "getText", "name", "getTitle", "getLabel")) {
+            try {
+                val result = item.javaClass.getMethod(methodName).invoke(item)
+                if (result != null && result.toString().isNotBlank()) {
+                    return result.toString()
+                }
+            } catch (e: Exception) {
+                // Try next method
+            }
+        }
+
+        return item.toString()
+    }
+
+    /**
+     * Get the ChatMode object from a ChatModeItem$Mode.
+     */
+    private fun getChatModeFromItem(item: Any): Any? {
+        return try {
+            item.javaClass.getMethod("getMode").invoke(item)
+        } catch (e: Exception) {
+            LOG.debug("getChatModeFromItem: getMode() failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Select a specific item in the chat mode combo box.
+     */
+    private fun selectChatModeItem(comboBox: Component, item: Any, index: Int): Boolean {
+        // Get the ChatMode from the item
+        val chatMode = getChatModeFromItem(item)
+
+        if (chatMode != null) {
+            LOG.info("selectChatModeItem: Got ChatMode: $chatMode")
+
+            // Use setSelectedMode(ChatMode) - this is the proper Copilot API
+            try {
+                val setSelectedModeMethod = comboBox.javaClass.methods.find {
+                    it.name == "setSelectedMode" && it.parameterCount == 1
+                }
+                if (setSelectedModeMethod != null) {
+                    setSelectedModeMethod.invoke(comboBox, chatMode)
+                    LOG.info("selectChatModeItem: setSelectedMode(ChatMode) succeeded")
+                    return true
+                }
+            } catch (e: Exception) {
+                LOG.warn("selectChatModeItem: setSelectedMode failed: ${e.message}", e)
+            }
+        } else {
+            LOG.warn("selectChatModeItem: Could not get ChatMode from item")
+        }
+
+        // Fallback: Try setSelectedItem with the full item
+        try {
+            comboBox.javaClass.getMethod("setSelectedItem", Any::class.java).invoke(comboBox, item)
+            LOG.info("selectChatModeItem: setSelectedItem succeeded")
+            return true
+        } catch (e: Exception) {
+            LOG.debug("selectChatModeItem: setSelectedItem failed: ${e.message}")
+        }
+
+        // Fallback: Try setSelectedIndex
+        try {
+            comboBox.javaClass.getMethod("setSelectedIndex", Int::class.java).invoke(comboBox, index)
+            LOG.info("selectChatModeItem: setSelectedIndex succeeded")
+            return true
+        } catch (e: Exception) {
+            LOG.debug("selectChatModeItem: setSelectedIndex failed: ${e.message}")
+        }
+
+        LOG.warn("selectChatModeItem: All approaches failed")
+        return false
     }
 
     fun setAskChatMode(project: Project): Boolean {
-        return selectChatModeByName(project, CopilotClassNames.ChatModes.ASK, CopilotClassNames.ChatModes.ASK_INDEX)
+        return selectChatModeByName(project, "Ask")
     }
 
     fun setAgentChatMode(project: Project): Boolean {
-        return selectChatModeByName(project, CopilotClassNames.ChatModes.AGENT, CopilotClassNames.ChatModes.AGENT_INDEX)
+        return selectChatModeByName(project, "Agent")
     }
 
     // =========================================================================
@@ -163,61 +300,126 @@ object CopilotChatToolWindowUtil {
     // =========================================================================
 
     /**
-     * Select a model by name from the ModelPickPanel.
+     * Select a model by matching its display name.
+     * ModelPickPanel uses CopilotModelItem objects with toString() returning the name.
      */
-    private fun selectModelByName(project: Project, modelNames: List<String>, fallbackIndex: Int): Boolean {
+    private fun selectModelByName(project: Project, modelName: String): Boolean {
         if (!activateCopilotChatToolWindow(project)) {
             LOG.warn("selectModelByName: Failed to activate tool window")
             return false
         }
 
-        val chatPanel = getCopilotChatPanel(project)
-        if (chatPanel == null) {
-            LOG.warn("selectModelByName: Chat panel not found")
-            return false
+        // Try tool window component first (more reliable)
+        val toolWindowComponent = getToolWindowComponent(project)
+        var modelPanel = if (toolWindowComponent != null) {
+            ComponentFinder.findFirstByClassName(toolWindowComponent, CopilotClassNames.MODEL_PICK_PANEL)
+        } else null
+
+        // Fallback to chat panel
+        if (modelPanel == null) {
+            val chatPanel = getCopilotChatPanel(project)
+            if (chatPanel != null) {
+                modelPanel = ComponentFinder.findFirstByClassName(chatPanel, CopilotClassNames.MODEL_PICK_PANEL)
+            }
         }
 
-        val modelPanel = ComponentFinder.findFirstByClassName(chatPanel, CopilotClassNames.MODEL_PICK_PANEL)
         if (modelPanel == null) {
             LOG.warn("selectModelByName: ModelPickPanel not found")
             return false
         }
 
-        // Try each name variant
-        for (modelName in modelNames) {
-            if (selectComboBoxItemByName(modelPanel, modelName)) {
-                LOG.debug("selectModelByName: Selected model '$modelName' by name")
-                return true
+        LOG.info("selectModelByName: Looking for model '$modelName'")
+
+        // Get item count
+        val itemCount = ReflectionUtil.getItemCount(modelPanel)
+        if (itemCount <= 0) {
+            LOG.warn("selectModelByName: No items in model panel")
+            return false
+        }
+
+        // Build list of non-separator items with their names
+        val items = mutableListOf<Triple<Int, Any, String>>()
+        for (i in 0 until itemCount) {
+            val item = ReflectionUtil.getItemAt(modelPanel, i) ?: continue
+
+            // Skip separators
+            try {
+                val isSeparator = item.javaClass.getMethod("isSeparator").invoke(item) as? Boolean ?: false
+                if (isSeparator) continue
+            } catch (e: Exception) {
+                // No isSeparator method, continue
+            }
+
+            val itemName = item.toString()
+            items.add(Triple(i, item, itemName))
+            LOG.debug("selectModelByName: Item $i = '$itemName'")
+        }
+
+        // First try exact match (case-insensitive)
+        for ((index, item, itemName) in items) {
+            if (itemName.equals(modelName, ignoreCase = true)) {
+                LOG.info("selectModelByName: Exact match '$modelName' at index $index")
+                return selectModelItem(modelPanel, item, index)
             }
         }
 
-        // Fallback to index
-        LOG.debug("selectModelByName: Name matching failed, falling back to index $fallbackIndex")
-        return selectComboBoxByIndex(modelPanel, fallbackIndex, "ModelPickPanel")
+        // Then try partial match (contains)
+        for ((index, item, itemName) in items) {
+            if (itemName.contains(modelName, ignoreCase = true)) {
+                LOG.info("selectModelByName: Partial match '$modelName' at index $index (name: '$itemName')")
+                return selectModelItem(modelPanel, item, index)
+            }
+        }
+
+        LOG.warn("selectModelByName: Model '$modelName' not found")
+        return false
+    }
+
+    /**
+     * Select a model item in the model picker.
+     */
+    private fun selectModelItem(modelPanel: Component, item: Any, index: Int): Boolean {
+        // Try setSelectedItem first
+        try {
+            modelPanel.javaClass.getMethod("setSelectedItem", Any::class.java).invoke(modelPanel, item)
+            LOG.info("selectModelItem: setSelectedItem succeeded")
+            return true
+        } catch (e: Exception) {
+            LOG.debug("selectModelItem: setSelectedItem failed: ${e.message}")
+        }
+
+        // Try setSelectedIndex
+        try {
+            modelPanel.javaClass.getMethod("setSelectedIndex", Int::class.java).invoke(modelPanel, index)
+            LOG.info("selectModelItem: setSelectedIndex succeeded")
+            return true
+        } catch (e: Exception) {
+            LOG.debug("selectModelItem: setSelectedIndex failed: ${e.message}")
+        }
+
+        LOG.warn("selectModelItem: All approaches failed")
+        return false
     }
 
     fun setModelClaudeSonnet4(project: Project): Boolean {
-        return selectModelByName(
-            project,
-            CopilotClassNames.ModelNames.CLAUDE_VARIANTS,
-            CopilotClassNames.ModelIndices.CLAUDE_SONNET_4
-        )
+        return selectModelByName(project, "Claude Sonnet 4")
     }
 
     fun setModelGeminiPro(project: Project): Boolean {
-        return selectModelByName(
-            project,
-            CopilotClassNames.ModelNames.GEMINI_VARIANTS,
-            CopilotClassNames.ModelIndices.GEMINI_PRO
-        )
+        return selectModelByName(project, "Gemini 2.5 Pro")
     }
 
+    fun setModelGPT4o(project: Project): Boolean {
+        return selectModelByName(project, "GPT-4o")
+    }
+
+    fun setModelGPT41(project: Project): Boolean {
+        return selectModelByName(project, "GPT-4.1")
+    }
+
+    // Legacy method - defaults to GPT-4o
     fun setModelGPT(project: Project): Boolean {
-        return selectModelByName(
-            project,
-            CopilotClassNames.ModelNames.GPT_VARIANTS,
-            CopilotClassNames.ModelIndices.GPT
-        )
+        return setModelGPT4o(project)
     }
 
     // =========================================================================
@@ -229,16 +431,40 @@ object CopilotChatToolWindowUtil {
      */
     private fun selectComboBoxItemByName(comboBox: Component, itemName: String): Boolean {
         val itemCount = ReflectionUtil.getItemCount(comboBox)
-        if (itemCount < 0) return false
+        if (itemCount < 0) {
+            LOG.debug("selectComboBoxItemByName: Could not get item count")
+            return false
+        }
+
+        LOG.debug("selectComboBoxItemByName: Searching for '$itemName' in $itemCount items")
 
         for (i in 0 until itemCount) {
             val item = ReflectionUtil.getItemAt(comboBox, i) ?: continue
             val itemString = item.toString()
 
+            LOG.debug("selectComboBoxItemByName: Item $i = '$itemString'")
+
             if (itemString.contains(itemName, ignoreCase = true)) {
-                return ReflectionUtil.setSelectedIndex(comboBox, i)
+                LOG.info("selectComboBoxItemByName: Found match at index $i")
+
+                // Try setSelectedItem first (more reliable for some combo boxes)
+                if (ReflectionUtil.setSelectedItem(comboBox, item)) {
+                    LOG.info("selectComboBoxItemByName: setSelectedItem succeeded")
+                    return true
+                }
+
+                // Fallback to setSelectedIndex
+                if (ReflectionUtil.setSelectedIndex(comboBox, i)) {
+                    LOG.info("selectComboBoxItemByName: setSelectedIndex succeeded")
+                    return true
+                }
+
+                LOG.warn("selectComboBoxItemByName: Both selection methods failed")
+                return false
             }
         }
+
+        LOG.debug("selectComboBoxItemByName: No match found for '$itemName'")
         return false
     }
 

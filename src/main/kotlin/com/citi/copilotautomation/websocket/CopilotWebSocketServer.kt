@@ -141,6 +141,8 @@ class CopilotWebSocketServer(
                 "setAskChatMode" -> executeEdtAction(type) { CopilotChatToolWindowUtil.setAskChatMode(project) }
                 "setAgentChatMode" -> executeEdtAction(type) { CopilotChatToolWindowUtil.setAgentChatMode(project) }
                 "setModelGPT" -> executeEdtAction(type) { CopilotChatToolWindowUtil.setModelGPT(project) }
+                "setModelGPT4o" -> executeEdtAction(type) { CopilotChatToolWindowUtil.setModelGPT4o(project) }
+                "setModelGPT41" -> executeEdtAction(type) { CopilotChatToolWindowUtil.setModelGPT41(project) }
                 "setModelGeminiPro" -> executeEdtAction(type) { CopilotChatToolWindowUtil.setModelGeminiPro(project) }
                 "setModelClaudeSonnet4" -> executeEdtAction(type) { CopilotChatToolWindowUtil.setModelClaudeSonnet4(project) }
                 "newAgentSession" -> executeEdtAction(type) { CopilotChatToolWindowUtil.startNewAgentSession(project) }
@@ -149,6 +151,8 @@ class CopilotWebSocketServer(
                 "runCliCommand" -> handleCliCommand(request["command"] as? String ?: "")
                 "diagnoseUI" -> handleDiagnoseUI()
                 "inspectInput" -> handleInspectInput()
+                "inspectChatMode" -> handleInspectChatMode()
+                "inspectModels" -> handleInspectModels()
                 else -> ResponseBuilder.error("error", port, "Unknown message type: $type")
             }
 
@@ -382,6 +386,34 @@ class CopilotWebSocketServer(
         } catch (e: Exception) {
             LOG.error("Failed to inspect input: ${e.message}", e)
             ResponseBuilder.error("inspectInput", port, "Failed to inspect input: ${e.message}")
+        }
+    }
+
+    private fun handleInspectChatMode(): Map<String, Any?> {
+        return try {
+            var report = ""
+            ApplicationManager.getApplication().invokeAndWait {
+                report = UIDiagnostics.inspectChatModeComboBox(project)
+            }
+            LOG.info("ChatMode Inspection:\n$report")
+            ResponseBuilder.success("inspectChatMode", port, mapOf("report" to report))
+        } catch (e: Exception) {
+            LOG.error("Failed to inspect chat mode: ${e.message}", e)
+            ResponseBuilder.error("inspectChatMode", port, "Failed to inspect chat mode: ${e.message}")
+        }
+    }
+
+    private fun handleInspectModels(): Map<String, Any?> {
+        return try {
+            var report = ""
+            ApplicationManager.getApplication().invokeAndWait {
+                report = UIDiagnostics.inspectModelPickPanel(project)
+            }
+            LOG.info("Models Inspection:\n$report")
+            ResponseBuilder.success("inspectModels", port, mapOf("report" to report))
+        } catch (e: Exception) {
+            LOG.error("Failed to inspect models: ${e.message}", e)
+            ResponseBuilder.error("inspectModels", port, "Failed to inspect models: ${e.message}")
         }
     }
 

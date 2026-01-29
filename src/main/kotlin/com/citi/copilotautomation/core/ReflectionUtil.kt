@@ -151,17 +151,97 @@ object ReflectionUtil {
     }
 
     /**
-     * Set selected index on a combo box-like component.
+     * Set selected index on a combo box-like component and fire action event.
      * @return true if successful, false otherwise
      */
     fun setSelectedIndex(comboBox: Any, index: Int): Boolean {
         return try {
+            // Set the new index
             comboBox.javaClass.getMethod("setSelectedIndex", Int::class.java).invoke(comboBox, index)
+
+            // Fire action event to notify listeners (required for custom combo boxes)
+            fireActionEvent(comboBox)
             true
         } catch (e: Exception) {
             LOG.debug("Failed to set selected index on ${comboBox.javaClass.simpleName}: ${e.message}")
             false
         }
+    }
+
+    /**
+     * Set selected item on a combo box-like component and fire action event.
+     * @return true if successful, false otherwise
+     */
+    fun setSelectedItem(comboBox: Any, item: Any): Boolean {
+        return try {
+            comboBox.javaClass.getMethod("setSelectedItem", Any::class.java).invoke(comboBox, item)
+
+            // Fire action event to notify listeners
+            fireActionEvent(comboBox)
+            true
+        } catch (e: Exception) {
+            LOG.debug("Failed to set selected item on ${comboBox.javaClass.simpleName}: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Fire an action event on a component to trigger listeners.
+     * Tries multiple approaches: fireActionEvent, actionPerformed, or direct ActionListener invocation.
+     */
+    private fun fireActionEvent(component: Any) {
+        // Try fireActionEvent method (some custom components have this)
+        try {
+            component.javaClass.getMethod("fireActionEvent").invoke(component)
+            LOG.debug("fireActionEvent: Called fireActionEvent() on ${component.javaClass.simpleName}")
+            return
+        } catch (e: NoSuchMethodException) {
+            // Method doesn't exist, try next approach
+        } catch (e: Exception) {
+            LOG.debug("fireActionEvent: fireActionEvent() failed: ${e.message}")
+        }
+
+        // Try to get and invoke action listeners directly
+        try {
+            val listenersMethod = component.javaClass.getMethod("getActionListeners")
+            val listeners = listenersMethod.invoke(component) as? Array<*>
+            if (listeners != null && listeners.isNotEmpty()) {
+                val actionEvent = java.awt.event.ActionEvent(
+                    component,
+                    java.awt.event.ActionEvent.ACTION_PERFORMED,
+                    "comboBoxChanged"
+                )
+                for (listener in listeners) {
+                    if (listener != null) {
+                        try {
+                            listener.javaClass.getMethod("actionPerformed", java.awt.event.ActionEvent::class.java)
+                                .invoke(listener, actionEvent)
+                        } catch (e: Exception) {
+                            // Continue with next listener
+                        }
+                    }
+                }
+                LOG.debug("fireActionEvent: Invoked ${listeners.size} action listeners on ${component.javaClass.simpleName}")
+                return
+            }
+        } catch (e: NoSuchMethodException) {
+            // No getActionListeners method
+        } catch (e: Exception) {
+            LOG.debug("fireActionEvent: getActionListeners failed: ${e.message}")
+        }
+
+        // Try selectedItemChanged for JComboBox-like components
+        try {
+            component.javaClass.getMethod("selectedItemChanged").invoke(component)
+            LOG.debug("fireActionEvent: Called selectedItemChanged() on ${component.javaClass.simpleName}")
+            return
+        } catch (e: NoSuchMethodException) {
+            // Method doesn't exist
+        } catch (e: Exception) {
+            LOG.debug("fireActionEvent: selectedItemChanged() failed: ${e.message}")
+        }
+
+        LOG.debug("fireActionEvent: No action event method found on ${component.javaClass.simpleName}")
     }
 
     /**
