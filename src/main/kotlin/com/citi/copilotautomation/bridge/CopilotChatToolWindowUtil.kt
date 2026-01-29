@@ -271,55 +271,69 @@ object CopilotChatToolWindowUtil {
             // Step 2: Find the popup's JList
             val popupList = findPopupJList()
             if (popupList != null) {
-                LOG.info("simulateComboBoxSelection: Found popup JList, clicking item at index $index")
+                LOG.info("simulateComboBoxSelection: Found popup JList, selecting index $index and pressing Enter")
 
-                // Get the cell bounds for the item
-                val cellBounds = popupList.getCellBounds(index, index)
-                if (cellBounds != null) {
-                    val clickX = cellBounds.x + cellBounds.width / 2
-                    val clickY = cellBounds.y + cellBounds.height / 2
+                // Set the selection on the list to highlight the item
+                popupList.selectedIndex = index
+                popupList.ensureIndexIsVisible(index)
 
-                    LOG.info("simulateComboBoxSelection: Cell bounds for index $index: $cellBounds, clicking at ($clickX, $clickY)")
+                Thread.sleep(100)
 
-                    // Dispatch MOUSE_PRESSED
-                    val pressEvent = java.awt.event.MouseEvent(
-                        popupList,
-                        java.awt.event.MouseEvent.MOUSE_PRESSED,
-                        System.currentTimeMillis(),
-                        java.awt.event.InputEvent.BUTTON1_DOWN_MASK,
-                        clickX, clickY,
-                        1, false, java.awt.event.MouseEvent.BUTTON1
-                    )
-                    popupList.dispatchEvent(pressEvent)
+                // Press Enter on the JList to confirm the selection
+                pressEnterOnComponent(popupList)
 
-                    Thread.sleep(50)
-
-                    // Dispatch MOUSE_RELEASED - this is what triggers selection in BasicComboPopup
-                    val releaseEvent = java.awt.event.MouseEvent(
-                        popupList,
-                        java.awt.event.MouseEvent.MOUSE_RELEASED,
-                        System.currentTimeMillis(),
-                        0,
-                        clickX, clickY,
-                        1, false, java.awt.event.MouseEvent.BUTTON1
-                    )
-                    popupList.dispatchEvent(releaseEvent)
-
-                    LOG.info("simulateComboBoxSelection: Dispatched press and release events to JList")
-                    return true
-                } else {
-                    LOG.warn("simulateComboBoxSelection: Could not get cell bounds for index $index")
-                }
+                LOG.info("simulateComboBoxSelection: Pressed Enter on JList")
+                return true
             }
 
             // Fallback: Try using keyboard navigation on the combo box
-            LOG.info("simulateComboBoxSelection: No popup JList found or no cell bounds, trying keyboard selection")
+            LOG.info("simulateComboBoxSelection: No popup JList found, trying keyboard selection")
             return selectViaKeyboard(comboBox, index)
 
         } catch (e: Exception) {
             LOG.warn("simulateComboBoxSelection: Failed: ${e.message}", e)
             return false
         }
+    }
+
+    /**
+     * Press Enter key on a component to confirm selection.
+     */
+    private fun pressEnterOnComponent(component: Component) {
+        // KEY_PRESSED
+        val pressEvent = java.awt.event.KeyEvent(
+            component,
+            java.awt.event.KeyEvent.KEY_PRESSED,
+            System.currentTimeMillis(),
+            0,
+            java.awt.event.KeyEvent.VK_ENTER,
+            '\n'
+        )
+        component.dispatchEvent(pressEvent)
+
+        // KEY_TYPED
+        val typedEvent = java.awt.event.KeyEvent(
+            component,
+            java.awt.event.KeyEvent.KEY_TYPED,
+            System.currentTimeMillis(),
+            0,
+            java.awt.event.KeyEvent.VK_UNDEFINED,
+            '\n'
+        )
+        component.dispatchEvent(typedEvent)
+
+        // KEY_RELEASED
+        val releaseEvent = java.awt.event.KeyEvent(
+            component,
+            java.awt.event.KeyEvent.KEY_RELEASED,
+            System.currentTimeMillis(),
+            0,
+            java.awt.event.KeyEvent.VK_ENTER,
+            '\n'
+        )
+        component.dispatchEvent(releaseEvent)
+
+        LOG.debug("pressEnterOnComponent: Dispatched Enter key events to ${component.javaClass.simpleName}")
     }
 
     /**
