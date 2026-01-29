@@ -268,21 +268,45 @@ object CopilotChatToolWindowUtil {
             // Give the popup time to appear
             Thread.sleep(150)
 
-            // Step 2: Find the popup's JList and select the item, then hide popup
+            // Step 2: Find the popup's JList
             val popupList = findPopupJList()
             if (popupList != null) {
                 LOG.info("simulateComboBoxSelection: Found popup JList, selecting index $index")
 
-                // Set the selection on the list
+                // Get the item at the index from the combo box
+                val item = try {
+                    comboBox.javaClass.getMethod("getItemAt", Int::class.java).invoke(comboBox, index)
+                } catch (e: Exception) { null }
+
+                // Set the selection on BOTH the list AND the combo box
                 popupList.selectedIndex = index
 
-                // Small delay then hide the popup to commit the selection
-                Thread.sleep(50)
+                // Set the selected item/index on the combo box itself
+                if (item != null) {
+                    try {
+                        comboBox.javaClass.getMethod("setSelectedItem", Any::class.java).invoke(comboBox, item)
+                        LOG.info("simulateComboBoxSelection: Set selected item on combo box")
+                    } catch (e: Exception) {
+                        LOG.debug("simulateComboBoxSelection: setSelectedItem failed: ${e.message}")
+                    }
+                }
 
-                // Hide the popup - this commits the selection
+                try {
+                    comboBox.javaClass.getMethod("setSelectedIndex", Int::class.java).invoke(comboBox, index)
+                    LOG.info("simulateComboBoxSelection: Set selected index on combo box")
+                } catch (e: Exception) {
+                    LOG.debug("simulateComboBoxSelection: setSelectedIndex failed: ${e.message}")
+                }
+
+                // Small delay then hide the popup
+                Thread.sleep(50)
                 hideComboBoxPopup(comboBox)
 
-                LOG.info("simulateComboBoxSelection: Selection committed via popup hide")
+                // Fire action performed to notify listeners
+                Thread.sleep(50)
+                fireActionPerformed(comboBox)
+
+                LOG.info("simulateComboBoxSelection: Selection committed")
                 return true
             }
 
@@ -293,6 +317,36 @@ object CopilotChatToolWindowUtil {
         } catch (e: Exception) {
             LOG.warn("simulateComboBoxSelection: Failed: ${e.message}", e)
             return false
+        }
+    }
+
+    /**
+     * Fire actionPerformed on the combo box to trigger listeners.
+     */
+    private fun fireActionPerformed(comboBox: Component) {
+        // Try to get action listeners and invoke them
+        try {
+            val listeners = comboBox.javaClass.getMethod("getActionListeners").invoke(comboBox) as? Array<*>
+            if (listeners != null && listeners.isNotEmpty()) {
+                val event = java.awt.event.ActionEvent(
+                    comboBox,
+                    java.awt.event.ActionEvent.ACTION_PERFORMED,
+                    "comboBoxChanged",
+                    System.currentTimeMillis(),
+                    0
+                )
+                for (listener in listeners) {
+                    try {
+                        listener?.javaClass?.getMethod("actionPerformed", java.awt.event.ActionEvent::class.java)
+                            ?.invoke(listener, event)
+                    } catch (e: Exception) {
+                        // Continue
+                    }
+                }
+                LOG.info("fireActionPerformed: Invoked ${listeners.size} listeners")
+            }
+        } catch (e: Exception) {
+            LOG.debug("fireActionPerformed: Failed: ${e.message}")
         }
     }
 
