@@ -1,0 +1,34 @@
+<idea-plugin>
+    <id>com.citi.copilot-api-minimal</id>
+    <name>Copilot API Minimal</name>
+    <vendor email="support@citi.com" url="http://www.citi.com">Citigroup</vendor>
+
+    <description><![CDATA[
+        Minimal plugin providing WebSocket API for Copilot chat automation.
+        Only displays the WebSocket port number - no other UI.
+        ]]></description>
+
+    <idea-version since-build="243"/>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.github.copilot</depends>
+
+    <projectListeners>
+        <listener
+                class="com.citi.agent.AgentProjectManagerListener"
+                topic="com.intellij.openapi.project.ProjectManagerListener"/>
+    </projectListeners>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow
+                id="Copilot API"
+                factoryClass="com.citi.copilotautomation.ui.PortDisplayToolWindowFactory"
+                anchor="bottom"
+                secondary="true"
+                icon="AllIcons.General.Information"
+        />
+
+        <projectService serviceImplementation="com.citi.copilotautomation.config.ProjectAgentConfig" preload="true"/>
+        <projectService serviceImplementation="com.citi.copilotautomation.websocket.CopilotWebSocketProjectService" preload="true"/>
+    </extensions>
+</idea-plugin>

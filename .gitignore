@@ -1,0 +1,21 @@
+# Gradle
+.gradle/
+build/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+.intellijPlatform/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime config
+.citi-agent/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
