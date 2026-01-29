@@ -268,20 +268,17 @@ object CopilotChatToolWindowUtil {
             // Give the popup time to appear
             Thread.sleep(150)
 
-            // Step 2: Find and click the item in the popup
+            // Step 2: Find the popup and click on the item directly
             val popup = findComboBoxPopup()
             if (popup != null) {
-                LOG.info("simulateComboBoxSelection: Found popup, selecting item at index $index")
-                selectPopupItem(popup, index)
+                LOG.info("simulateComboBoxSelection: Found popup, clicking item at index $index")
 
-                // Step 3: Press Enter on combo box to confirm selection
-                Thread.sleep(100)
-                LOG.info("simulateComboBoxSelection: Pressing Enter to confirm selection")
-                pressEnterKey(comboBox)
+                // Click directly on the item in the popup
+                clickPopupItemAtIndex(popup, index)
                 return true
             }
 
-            // Fallback: Try using keyboard navigation
+            // Fallback: Try using keyboard navigation on the combo box
             LOG.info("simulateComboBoxSelection: No popup found, trying keyboard selection")
             return selectViaKeyboard(comboBox, index)
 
@@ -289,6 +286,90 @@ object CopilotChatToolWindowUtil {
             LOG.warn("simulateComboBoxSelection: Failed: ${e.message}", e)
             return false
         }
+    }
+
+    /**
+     * Click directly on an item in the popup list at the given index.
+     */
+    private fun clickPopupItemAtIndex(popup: Component, index: Int) {
+        if (popup is javax.swing.JList<*>) {
+            // For JList, we can get the cell bounds and click on it
+            val cellBounds = popup.getCellBounds(index, index)
+            if (cellBounds != null) {
+                val clickX = cellBounds.x + cellBounds.width / 2
+                val clickY = cellBounds.y + cellBounds.height / 2
+
+                LOG.info("clickPopupItemAtIndex: Clicking JList at ($clickX, $clickY) for index $index")
+
+                val pressEvent = java.awt.event.MouseEvent(
+                    popup,
+                    java.awt.event.MouseEvent.MOUSE_PRESSED,
+                    System.currentTimeMillis(),
+                    java.awt.event.InputEvent.BUTTON1_DOWN_MASK,
+                    clickX, clickY,
+                    1, false, java.awt.event.MouseEvent.BUTTON1
+                )
+                val releaseEvent = java.awt.event.MouseEvent(
+                    popup,
+                    java.awt.event.MouseEvent.MOUSE_RELEASED,
+                    System.currentTimeMillis(),
+                    0,
+                    clickX, clickY,
+                    1, false, java.awt.event.MouseEvent.BUTTON1
+                )
+                val clickEvent = java.awt.event.MouseEvent(
+                    popup,
+                    java.awt.event.MouseEvent.MOUSE_CLICKED,
+                    System.currentTimeMillis(),
+                    0,
+                    clickX, clickY,
+                    1, false, java.awt.event.MouseEvent.BUTTON1
+                )
+
+                popup.dispatchEvent(pressEvent)
+                popup.dispatchEvent(releaseEvent)
+                popup.dispatchEvent(clickEvent)
+                return
+            }
+        }
+
+        // For non-JList popups, estimate item position
+        val bounds = popup.bounds
+        val itemCount = getListItemCount(popup)
+        val itemHeight = bounds.height / maxOf(1, itemCount)
+        val clickX = bounds.width / 2
+        val clickY = (index * itemHeight) + (itemHeight / 2)
+
+        LOG.info("clickPopupItemAtIndex: Clicking popup at ($clickX, $clickY) for index $index")
+
+        val pressEvent = java.awt.event.MouseEvent(
+            popup,
+            java.awt.event.MouseEvent.MOUSE_PRESSED,
+            System.currentTimeMillis(),
+            java.awt.event.InputEvent.BUTTON1_DOWN_MASK,
+            clickX, clickY,
+            1, false, java.awt.event.MouseEvent.BUTTON1
+        )
+        val releaseEvent = java.awt.event.MouseEvent(
+            popup,
+            java.awt.event.MouseEvent.MOUSE_RELEASED,
+            System.currentTimeMillis(),
+            0,
+            clickX, clickY,
+            1, false, java.awt.event.MouseEvent.BUTTON1
+        )
+        val clickEvent = java.awt.event.MouseEvent(
+            popup,
+            java.awt.event.MouseEvent.MOUSE_CLICKED,
+            System.currentTimeMillis(),
+            0,
+            clickX, clickY,
+            1, false, java.awt.event.MouseEvent.BUTTON1
+        )
+
+        popup.dispatchEvent(pressEvent)
+        popup.dispatchEvent(releaseEvent)
+        popup.dispatchEvent(clickEvent)
     }
 
     /**
