@@ -268,8 +268,8 @@ object CopilotChatToolWindowUtil {
             // Give the popup time to appear
             Thread.sleep(200)
 
-            // Step 2: Find the popup's list (MyList or JList) for this specific combo box
-            val popupList = findPopupListForComboBox(comboBox)
+            // Step 2: Find the popup's list (MyList or JList)
+            val popupList = findPopupList()
             if (popupList != null) {
                 LOG.info("simulateComboBoxSelection: Found popup list (${popupList.javaClass.simpleName}), clicking item at index $index")
 
@@ -335,60 +335,7 @@ object CopilotChatToolWindowUtil {
     }
 
     /**
-     * Find the popup list component for a specific combo box.
-     */
-    private fun findPopupListForComboBox(comboBox: Component): Component? {
-        // Try to get popup directly from the combo box's UI
-        try {
-            val ui = comboBox.javaClass.getMethod("getUI").invoke(comboBox)
-            if (ui != null) {
-                // Try getPopup() method (BasicComboBoxUI has this)
-                try {
-                    val popup = ui.javaClass.getMethod("getPopup").invoke(ui)
-                    if (popup != null) {
-                        // The popup should have a list inside
-                        val list = findListComponentInContainer(popup as java.awt.Container)
-                        if (list != null) {
-                            LOG.debug("findPopupListForComboBox: Found list via UI.getPopup()")
-                            return list
-                        }
-                    }
-                } catch (e: Exception) {
-                    LOG.debug("findPopupListForComboBox: getPopup() failed: ${e.message}")
-                }
-            }
-        } catch (e: Exception) {
-            LOG.debug("findPopupListForComboBox: getUI() failed: ${e.message}")
-        }
-
-        // Fallback: Look for recently appeared popup window near the combo box
-        val comboBoxLocation = comboBox.locationOnScreen
-        val comboBoxBounds = comboBox.bounds
-
-        for (window in java.awt.Window.getWindows()) {
-            if (window.isVisible && window.javaClass.simpleName.contains("Window")) {
-                val windowLocation = window.locationOnScreen
-
-                // Check if window is positioned near/below the combo box (popup position)
-                val horizontallyNear = kotlin.math.abs(windowLocation.x - comboBoxLocation.x) < 200
-                val verticallyBelow = windowLocation.y >= comboBoxLocation.y &&
-                                      windowLocation.y <= comboBoxLocation.y + comboBoxBounds.height + 300
-
-                if (horizontallyNear && verticallyBelow) {
-                    val list = findListComponentInContainer(window)
-                    if (list != null) {
-                        LOG.debug("findPopupListForComboBox: Found ${list.javaClass.simpleName} in popup near combo box")
-                        return list
-                    }
-                }
-            }
-        }
-
-        return null
-    }
-
-    /**
-     * Find the popup list component (MyList, JList, or similar) - legacy fallback.
+     * Find the popup list component (MyList, JList, or similar).
      */
     private fun findPopupList(): Component? {
         for (window in java.awt.Window.getWindows()) {
