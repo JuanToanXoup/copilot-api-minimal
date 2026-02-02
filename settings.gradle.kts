@@ -9,3 +9,6 @@ pluginManagement {
 }
 
 rootProject.name = "copilot-api-minimal"
+
+include("plugin")
+include("dashboard")
