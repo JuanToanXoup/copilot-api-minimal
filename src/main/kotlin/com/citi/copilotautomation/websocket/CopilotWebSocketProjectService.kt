@@ -1,13 +1,12 @@
 package com.citi.copilotautomation.websocket
 
-import com.citi.copilotautomation.config.ProjectAgentConfig
+import com.citi.copilotautomation.config.PortRegistry
 import com.citi.copilotautomation.core.ServerConfig
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import java.io.IOException
 import java.net.BindException
 import java.net.ServerSocket
 
@@ -19,7 +18,13 @@ class CopilotWebSocketProjectService(
     private var server: CopilotWebSocketServer? = null
     private val serverLock = Any()
 
+    // Unique instance ID for this IDE instance
+    val instanceId: String = PortRegistry.generateInstanceId()
+
     init {
+        // Clean up stale entries on startup
+        PortRegistry.cleanupStaleEntries()
+
         ApplicationManager.getApplication().executeOnPooledThread {
             startServer()
         }
@@ -28,7 +33,7 @@ class CopilotWebSocketProjectService(
     fun getPort(): Int = synchronized(serverLock) { server?.port ?: 0 }
 
     fun startServer(): Boolean = synchronized(serverLock) {
-        LOG.info("Service [${System.identityHashCode(this)}] received start command for project '${project.name}'.")
+        LOG.info("Service [${System.identityHashCode(this)}] received start command for project '${project.name}'. Instance: $instanceId")
 
         if (server != null && server!!.isRunning()) {
             LOG.info("Service [${System.identityHashCode(this)}] reports server is already running. Aborting start.")
@@ -39,14 +44,15 @@ class CopilotWebSocketProjectService(
 
         return try {
             val projectRoot = project.basePath ?: return false
-            val config = ProjectAgentConfig.load(projectRoot, project)
             var portToUse = 0
 
-            if (config.port != null && config.port!! > 0 && isPortAvailable(config.port!!)) {
-                portToUse = config.port!!
-                LOG.info("Using port from config: $portToUse")
+            // Check if we have a port from a previous run of this instance
+            val registryPort = PortRegistry.getPort(instanceId)
+            if (registryPort != null && registryPort > 0) {
+                portToUse = registryPort
+                LOG.info("Using port from registry: $portToUse")
             } else {
-                LOG.info("No valid port in config or port unavailable. Will use random port.")
+                LOG.info("No existing port for this instance. Will use random port.")
             }
 
             var attempt = 0
@@ -55,7 +61,7 @@ class CopilotWebSocketProjectService(
 
             while (attempt < ServerConfig.PORT_RETRY_ATTEMPTS && !started) {
                 try {
-                    server = CopilotWebSocketServer(portToUse, project)
+                    server = CopilotWebSocketServer(portToUse, project, instanceId)
                     LOG.debug("Service [${System.identityHashCode(this)}]: Created new server object. ID: ${System.identityHashCode(server)}")
 
                     started = server!!.startServerAndWait(ServerConfig.SERVER_START_TIMEOUT_MS)
@@ -63,11 +69,15 @@ class CopilotWebSocketProjectService(
                         val startedPort = server!!.port
                         LOG.info("Service [${System.identityHashCode(this)}]: SUCCESS. Server for project '${project.name}' started on port: $startedPort")
 
-                        if (config.port != startedPort) {
-                            config.port = startedPort
-                            config.save(projectRoot)
-                            LOG.info("Saved new port $startedPort to config file.")
-                        }
+                        // Register this instance in the registry
+                        PortRegistry.registerInstance(
+                            instanceId = instanceId,
+                            projectPath = projectRoot,
+                            port = startedPort,
+                            agentName = "Default Agent",
+                            agentDescription = "Default description"
+                        )
+                        LOG.info("Registered instance $instanceId with port $startedPort")
                         return true
                     } else {
                         LOG.error("Service [${System.identityHashCode(this)}]: FAILED. Server did not start within the timeout.")
@@ -97,15 +107,6 @@ class CopilotWebSocketProjectService(
         } catch (e: Exception) {
             LOG.error("Service [${System.identityHashCode(this)}]: EXCEPTION during server start.", e)
             stopServerInternal()
-            false
-        }
-    }
-
-    private fun isPortAvailable(port: Int): Boolean {
-        return try {
-            ServerSocket(port).close()
-            true
-        } catch (ignored: IOException) {
             false
         }
     }
@@ -143,6 +144,9 @@ class CopilotWebSocketProjectService(
 
     override fun dispose() {
         stopServer()
+        // Remove this instance from the registry
+        PortRegistry.removeInstance(instanceId)
+        LOG.info("Disposed service and removed instance $instanceId from registry")
     }
 
     companion object {

@@ -3,6 +3,7 @@ package com.citi.copilotautomation.core
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 
 /**
  * Centralized JSON utilities using Jackson ObjectMapper.
@@ -16,6 +17,7 @@ object JsonUtil {
      */
     val mapper: ObjectMapper by lazy {
         ObjectMapper().apply {
+            registerKotlinModule()
             configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
         }
     }
@@ -26,6 +28,7 @@ object JsonUtil {
      */
     val prettyMapper: ObjectMapper by lazy {
         ObjectMapper().apply {
+            registerKotlinModule()
             enable(SerializationFeature.INDENT_OUTPUT)
             configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
         }

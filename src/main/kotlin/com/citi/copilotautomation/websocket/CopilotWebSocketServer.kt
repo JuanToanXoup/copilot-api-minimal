@@ -5,7 +5,7 @@ import com.citi.copilotautomation.bridge.CopilotChatUtil
 import com.citi.copilotautomation.bridge.CopilotClassNames
 import com.citi.copilotautomation.bridge.UIDiagnostics
 import com.citi.copilotautomation.bridge.UIFinderUtil
-import com.citi.copilotautomation.config.ProjectAgentConfig
+import com.citi.copilotautomation.config.PortRegistry
 import com.citi.copilotautomation.core.ReflectionUtil
 import com.citi.copilotautomation.core.ResponseBuilder
 import com.citi.copilotautomation.core.ServerConfig
@@ -19,8 +19,6 @@ import org.java_websocket.handshake.ClientHandshake
 import org.java_websocket.server.WebSocketServer
 import java.awt.Component
 import java.net.InetSocketAddress
-import java.nio.file.Files
-import java.nio.file.Paths
 import java.util.*
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -30,7 +28,8 @@ import javax.swing.JScrollPane
 
 class CopilotWebSocketServer(
     port: Int,
-    private val project: Project
+    private val project: Project,
+    private val instanceId: String = ""
 ) : WebSocketServer(InetSocketAddress("localhost", port)) {
 
     init {
@@ -95,12 +94,19 @@ class CopilotWebSocketServer(
         LOG.info("WebSocket connection established: $connectionId from ${handshake.resourceDescriptor}")
 
         try {
-            val configFile = Paths.get(project.basePath!!, ProjectAgentConfig.CONFIG_PATH)
-            if (!Files.exists(configFile)) {
-                throw java.io.FileNotFoundException("Agent config file not found at $configFile")
-            }
+            // Read from centralized registry using instance ID
+            val entry = PortRegistry.getEntry(instanceId)
 
-            val agentDetails = objectMapper.readValue(configFile.toFile(), Map::class.java)
+            val agentDetails = mutableMapOf<String, Any?>()
+            agentDetails["agentName"] = entry?.agentName ?: "Default Agent"
+            agentDetails["agentDescription"] = entry?.agentDescription ?: "Default description"
+            agentDetails["port"] = port
+            agentDetails["instanceId"] = instanceId
+            agentDetails["projectPath"] = project.basePath
+            agentDetails["role"] = entry?.role
+            agentDetails["capabilities"] = entry?.capabilities
+            agentDetails["systemPrompt"] = entry?.systemPrompt
+
             val response = ResponseBuilder.agentDetails(port, agentDetails)
             conn.send(objectMapper.writeValueAsString(response))
             LOG.debug("Proactively sent agent config to new connection $connectionId")
@@ -155,6 +161,20 @@ class CopilotWebSocketServer(
                 "inspectModels" -> handleInspectModels()
                 "startEventRecording" -> handleStartEventRecording()
                 "stopEventRecording" -> handleStopEventRecording()
+                // Multi-agent configuration commands
+                "setAgentRole" -> handleSetAgentRole(request["role"] as? String)
+                "setAgentCapabilities" -> handleSetAgentCapabilities(request["capabilities"])
+                "setAgentSystemPrompt" -> handleSetAgentSystemPrompt(request["systemPrompt"] as? String)
+                "setAgentConfig" -> handleSetAgentConfig(request)
+                "getAgentConfig" -> handleGetAgentConfig()
+                "discoverAgents" -> handleDiscoverAgents()
+                "findAgentsByRole" -> handleFindAgentsByRole(request["role"] as? String)
+                "findAgentsByCapability" -> handleFindAgentsByCapability(request["capability"] as? String)
+                // Agent-to-agent communication
+                "delegateToAgent" -> handleDelegateToAgent(request)
+                // Agent spawning
+                "spawnAgent" -> handleSpawnAgent(request)
+                "listProjects" -> handleListProjects()
                 else -> ResponseBuilder.error("error", port, "Unknown message type: $type")
             }
 
@@ -221,7 +241,16 @@ class CopilotWebSocketServer(
     private fun executeCopilotPrompt(prompt: String): String {
         promptLock.lock()
         try {
-            LOG.info("Executing prompt: '${prompt.take(70)}...'")
+            // Prepend system prompt if configured for this agent's role
+            val entry = PortRegistry.getEntry(instanceId)
+            val systemPrompt = entry?.systemPrompt
+            val fullPrompt = if (!systemPrompt.isNullOrBlank()) {
+                "$systemPrompt\n\n$prompt"
+            } else {
+                prompt
+            }
+
+            LOG.info("Executing prompt: '${fullPrompt.take(70)}...'")
 
             // Count existing messages BEFORE sending the prompt
             var messageCountBefore = 0
@@ -231,7 +260,7 @@ class CopilotWebSocketServer(
             LOG.debug("Message count before prompt: $messageCountBefore")
 
             ApplicationManager.getApplication().invokeAndWait {
-                CopilotChatUtil.sendToCopilotChat(project, prompt) {}
+                CopilotChatUtil.sendToCopilotChat(project, fullPrompt) {}
             }
 
             LOG.debug("Waiting for generation to start...")
@@ -552,6 +581,443 @@ class CopilotWebSocketServer(
         } catch (e: Exception) {
             LOG.error("Failed to stop event recording: ${e.message}", e)
             ResponseBuilder.error("stopEventRecording", port, "Failed: ${e.message}")
+        }
+    }
+
+    // ==================== Multi-Agent Configuration ====================
+
+    private fun handleSetAgentRole(role: String?): Map<String, Any?> {
+        return try {
+            PortRegistry.setAgentConfig(instanceId, role = role)
+            LOG.info("Set agent role to: $role")
+            ResponseBuilder.success("setAgentRole", port, mapOf("role" to role))
+        } catch (e: Exception) {
+            LOG.error("Failed to set agent role: ${e.message}", e)
+            ResponseBuilder.error("setAgentRole", port, "Failed: ${e.message}")
+        }
+    }
+
+    private fun handleSetAgentCapabilities(capabilities: Any?): Map<String, Any?> {
+        return try {
+            @Suppress("UNCHECKED_CAST")
+            val capList = when (capabilities) {
+                is List<*> -> capabilities.filterIsInstance<String>()
+                is String -> capabilities.split(",").map { it.trim() }
+                else -> null
+            }
+            PortRegistry.setAgentConfig(instanceId, capabilities = capList)
+            LOG.info("Set agent capabilities to: $capList")
+            ResponseBuilder.success("setAgentCapabilities", port, mapOf("capabilities" to capList))
+        } catch (e: Exception) {
+            LOG.error("Failed to set agent capabilities: ${e.message}", e)
+            ResponseBuilder.error("setAgentCapabilities", port, "Failed: ${e.message}")
+        }
+    }
+
+    private fun handleSetAgentSystemPrompt(systemPrompt: String?): Map<String, Any?> {
+        return try {
+            PortRegistry.setAgentConfig(instanceId, systemPrompt = systemPrompt)
+            LOG.info("Set agent system prompt (${systemPrompt?.length ?: 0} chars)")
+            ResponseBuilder.success("setAgentSystemPrompt", port, mapOf("systemPrompt" to systemPrompt))
+        } catch (e: Exception) {
+            LOG.error("Failed to set agent system prompt: ${e.message}", e)
+            ResponseBuilder.error("setAgentSystemPrompt", port, "Failed: ${e.message}")
+        }
+    }
+
+    private fun handleSetAgentConfig(request: Map<String, Any?>): Map<String, Any?> {
+        return try {
+            val agentName = request["agentName"] as? String
+            val agentDescription = request["agentDescription"] as? String
+            val role = request["role"] as? String
+            @Suppress("UNCHECKED_CAST")
+            val capabilities = (request["capabilities"] as? List<*>)?.filterIsInstance<String>()
+            val systemPrompt = request["systemPrompt"] as? String
+
+            PortRegistry.setAgentConfig(
+                instanceId,
+                agentName = agentName,
+                agentDescription = agentDescription,
+                role = role,
+                capabilities = capabilities,
+                systemPrompt = systemPrompt
+            )
+            LOG.info("Updated agent config: role=$role, capabilities=$capabilities")
+            ResponseBuilder.success("setAgentConfig", port, mapOf(
+                "agentName" to agentName,
+                "role" to role,
+                "capabilities" to capabilities
+            ))
+        } catch (e: Exception) {
+            LOG.error("Failed to set agent config: ${e.message}", e)
+            ResponseBuilder.error("setAgentConfig", port, "Failed: ${e.message}")
+        }
+    }
+
+    private fun handleGetAgentConfig(): Map<String, Any?> {
+        return try {
+            val entry = PortRegistry.getEntry(instanceId)
+            ResponseBuilder.success("getAgentConfig", port, mapOf(
+                "instanceId" to instanceId,
+                "projectPath" to project.basePath,
+                "agentName" to entry?.agentName,
+                "agentDescription" to entry?.agentDescription,
+                "role" to entry?.role,
+                "capabilities" to entry?.capabilities,
+                "systemPrompt" to entry?.systemPrompt
+            ))
+        } catch (e: Exception) {
+            LOG.error("Failed to get agent config: ${e.message}", e)
+            ResponseBuilder.error("getAgentConfig", port, "Failed: ${e.message}")
+        }
+    }
+
+    private fun handleDiscoverAgents(): Map<String, Any?> {
+        return try {
+            val allAgents = PortRegistry.getAllInstances()
+            val agentList = allAgents.map { (id, entry) ->
+                mapOf(
+                    "instanceId" to id,
+                    "projectPath" to entry.projectPath,
+                    "port" to entry.port,
+                    "agentName" to entry.agentName,
+                    "role" to entry.role,
+                    "capabilities" to entry.capabilities,
+                    "isCurrentInstance" to (id == instanceId)
+                )
+            }
+            ResponseBuilder.success("discoverAgents", port, mapOf(
+                "agents" to agentList,
+                "count" to agentList.size
+            ))
+        } catch (e: Exception) {
+            LOG.error("Failed to discover agents: ${e.message}", e)
+            ResponseBuilder.error("discoverAgents", port, "Failed: ${e.message}")
+        }
+    }
+
+    private fun handleFindAgentsByRole(role: String?): Map<String, Any?> {
+        if (role.isNullOrBlank()) {
+            return ResponseBuilder.error("findAgentsByRole", port, "Role parameter is required")
+        }
+        return try {
+            val agents = PortRegistry.findAgentsByRole(role)
+            val agentList = agents.map { (id, entry) ->
+                mapOf(
+                    "instanceId" to id,
+                    "projectPath" to entry.projectPath,
+                    "port" to entry.port,
+                    "agentName" to entry.agentName,
+                    "role" to entry.role,
+                    "capabilities" to entry.capabilities
+                )
+            }
+            ResponseBuilder.success("findAgentsByRole", port, mapOf(
+                "role" to role,
+                "agents" to agentList,
+                "count" to agentList.size
+            ))
+        } catch (e: Exception) {
+            LOG.error("Failed to find agents by role: ${e.message}", e)
+            ResponseBuilder.error("findAgentsByRole", port, "Failed: ${e.message}")
+        }
+    }
+
+    private fun handleFindAgentsByCapability(capability: String?): Map<String, Any?> {
+        if (capability.isNullOrBlank()) {
+            return ResponseBuilder.error("findAgentsByCapability", port, "Capability parameter is required")
+        }
+        return try {
+            val agents = PortRegistry.findAgentsByCapability(capability)
+            val agentList = agents.map { (id, entry) ->
+                mapOf(
+                    "instanceId" to id,
+                    "projectPath" to entry.projectPath,
+                    "port" to entry.port,
+                    "agentName" to entry.agentName,
+                    "role" to entry.role,
+                    "capabilities" to entry.capabilities
+                )
+            }
+            ResponseBuilder.success("findAgentsByCapability", port, mapOf(
+                "capability" to capability,
+                "agents" to agentList,
+                "count" to agentList.size
+            ))
+        } catch (e: Exception) {
+            LOG.error("Failed to find agents by capability: ${e.message}", e)
+            ResponseBuilder.error("findAgentsByCapability", port, "Failed: ${e.message}")
+        }
+    }
+
+    // ==================== Agent-to-Agent Communication ====================
+
+    private fun handleDelegateToAgent(request: Map<String, Any?>): Map<String, Any?> {
+        val targetPort = (request["targetPort"] as? Number)?.toInt()
+        val targetInstanceId = request["targetInstanceId"] as? String
+        val targetRole = request["targetRole"] as? String
+        val prompt = request["prompt"] as? String
+        val messageType = request["messageType"] as? String ?: "copilotPrompt"
+
+        if (prompt.isNullOrBlank()) {
+            return ResponseBuilder.error("delegateToAgent", port, "Prompt is required")
+        }
+
+        // Determine target port
+        val resolvedPort = when {
+            targetPort != null && targetPort > 0 -> targetPort
+            targetInstanceId != null -> PortRegistry.getEntry(targetInstanceId)?.port
+            targetRole != null -> PortRegistry.findAgentsByRole(targetRole).values.firstOrNull()?.port
+            else -> null
+        }
+
+        if (resolvedPort == null || resolvedPort <= 0) {
+            return ResponseBuilder.error("delegateToAgent", port, "Could not resolve target agent")
+        }
+
+        if (resolvedPort == this.port) {
+            return ResponseBuilder.error("delegateToAgent", port, "Cannot delegate to self")
+        }
+
+        return try {
+            LOG.info("Delegating to agent on port $resolvedPort: ${prompt.take(50)}...")
+
+            val resultHolder = java.util.concurrent.CompletableFuture<Map<String, Any?>>()
+
+            val wsClient = DelegationClient(
+                uri = java.net.URI("ws://localhost:$resolvedPort"),
+                messageType = messageType,
+                prompt = prompt,
+                resultHolder = resultHolder,
+                objectMapper = objectMapper,
+                logger = LOG
+            )
+
+            wsClient.connectBlocking(10, java.util.concurrent.TimeUnit.SECONDS)
+
+            // Wait for result with timeout
+            val result = resultHolder.get(120, java.util.concurrent.TimeUnit.SECONDS)
+
+            ResponseBuilder.success("delegateToAgent", port, mapOf(
+                "targetPort" to resolvedPort,
+                "delegatedResult" to result,
+                "fromAgent" to instanceId
+            ))
+        } catch (e: java.util.concurrent.TimeoutException) {
+            LOG.error("Delegation timed out: ${e.message}")
+            ResponseBuilder.error("delegateToAgent", port, "Delegation timed out")
+        } catch (e: Exception) {
+            LOG.error("Failed to delegate to agent: ${e.message}", e)
+            ResponseBuilder.error("delegateToAgent", port, "Failed: ${e.message}")
+        }
+    }
+
+    // ==================== Agent Spawning ====================
+
+    private fun handleSpawnAgent(request: Map<String, Any?>): Map<String, Any?> {
+        val projectPath = request["projectPath"] as? String
+        val role = request["role"] as? String
+        @Suppress("UNCHECKED_CAST")
+        val capabilities = (request["capabilities"] as? List<*>)?.filterIsInstance<String>()
+        val waitForReady = request["waitForReady"] as? Boolean ?: false
+        val timeoutSeconds = (request["timeout"] as? Number)?.toInt() ?: 30
+
+        if (projectPath.isNullOrBlank()) {
+            return ResponseBuilder.error("spawnAgent", port, "projectPath is required")
+        }
+
+        val projectDir = java.io.File(projectPath)
+        if (!projectDir.exists() || !projectDir.isDirectory) {
+            return ResponseBuilder.error("spawnAgent", port, "Project path does not exist: $projectPath")
+        }
+
+        return try {
+            LOG.info("Spawning new agent for project: $projectPath")
+
+            // Try different ways to open IntelliJ (same approach as tool window)
+            val commands = listOf(
+                listOf("idea", projectPath),
+                listOf("open", "-a", "IntelliJ IDEA", projectPath),
+                listOf("open", "-a", "IntelliJ IDEA Ultimate", projectPath),
+                listOf("open", "-a", "IntelliJ IDEA CE", projectPath)
+            )
+
+            var launched = false
+            for (cmd in commands) {
+                try {
+                    val process = ProcessBuilder(cmd)
+                        .redirectErrorStream(true)
+                        .start()
+                    Thread.sleep(1000)
+                    if (process.isAlive || process.exitValue() == 0) {
+                        launched = true
+                        break
+                    }
+                } catch (e: Exception) {
+                    // Try next command
+                }
+            }
+
+            if (!launched) {
+                return ResponseBuilder.error("spawnAgent", port, "Failed to launch IDE")
+            }
+
+            // Optionally wait for the new agent to register
+            if (waitForReady) {
+                val startTime = System.currentTimeMillis()
+                var newAgentPort: Int? = null
+
+                while (System.currentTimeMillis() - startTime < timeoutSeconds * 1000) {
+                    Thread.sleep(2000)
+                    // Look for a new instance of this project
+                    val instances = PortRegistry.getInstancesForProject(projectPath)
+                    val newInstance = instances.entries.find { (id, entry) ->
+                        entry.port > 0 && isPortResponding(entry.port)
+                    }
+                    if (newInstance != null) {
+                        newAgentPort = newInstance.value.port
+
+                        // Configure the new agent if role/capabilities specified
+                        if (role != null || capabilities != null) {
+                            try {
+                                val configClient = DelegationClient(
+                                    uri = java.net.URI("ws://localhost:$newAgentPort"),
+                                    messageType = "setAgentConfig",
+                                    prompt = "", // Not used for config
+                                    resultHolder = java.util.concurrent.CompletableFuture(),
+                                    objectMapper = objectMapper,
+                                    logger = LOG
+                                )
+                                // Would need to modify DelegationClient to support config messages
+                                // For now, just note the port
+                            } catch (e: Exception) {
+                                LOG.warn("Could not configure new agent: ${e.message}")
+                            }
+                        }
+                        break
+                    }
+                }
+
+                if (newAgentPort != null) {
+                    ResponseBuilder.success("spawnAgent", port, mapOf(
+                        "projectPath" to projectPath,
+                        "newAgentPort" to newAgentPort,
+                        "status" to "ready"
+                    ))
+                } else {
+                    ResponseBuilder.success("spawnAgent", port, mapOf(
+                        "projectPath" to projectPath,
+                        "status" to "launched_not_ready",
+                        "message" to "IDE launched but agent not yet registered"
+                    ))
+                }
+            } else {
+                ResponseBuilder.success("spawnAgent", port, mapOf(
+                    "projectPath" to projectPath,
+                    "status" to "launched"
+                ))
+            }
+        } catch (e: Exception) {
+            LOG.error("Failed to spawn agent: ${e.message}", e)
+            ResponseBuilder.error("spawnAgent", port, "Failed: ${e.message}")
+        }
+    }
+
+    private fun isPortResponding(port: Int): Boolean {
+        return try {
+            java.net.Socket("localhost", port).use { true }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun handleListProjects(): Map<String, Any?> {
+        return try {
+            val instances = PortRegistry.getAllInstances()
+            val projects = instances.values
+                .map { it.projectPath }
+                .distinct()
+                .map { path ->
+                    val projectInstances = instances.filter { it.value.projectPath == path }
+                    mapOf(
+                        "projectPath" to path,
+                        "projectName" to java.io.File(path).name,
+                        "instanceCount" to projectInstances.size,
+                        "instances" to projectInstances.map { (id, entry) ->
+                            mapOf(
+                                "instanceId" to id,
+                                "port" to entry.port,
+                                "role" to entry.role,
+                                "isRunning" to isPortResponding(entry.port)
+                            )
+                        }
+                    )
+                }
+
+            ResponseBuilder.success("listProjects", port, mapOf(
+                "projects" to projects,
+                "totalProjects" to projects.size,
+                "totalInstances" to instances.size
+            ))
+        } catch (e: Exception) {
+            LOG.error("Failed to list projects: ${e.message}", e)
+            ResponseBuilder.error("listProjects", port, "Failed: ${e.message}")
+        }
+    }
+
+    /**
+     * WebSocket client for delegating tasks to other agents.
+     */
+    private class DelegationClient(
+        uri: java.net.URI,
+        private val messageType: String,
+        private val prompt: String,
+        private val resultHolder: java.util.concurrent.CompletableFuture<Map<String, Any?>>,
+        private val objectMapper: ObjectMapper,
+        private val logger: Logger
+    ) : org.java_websocket.client.WebSocketClient(uri) {
+
+        private var receivedConfig = false
+
+        override fun onOpen(handshakedata: org.java_websocket.handshake.ServerHandshake) {
+            logger.debug("Connected to target agent")
+        }
+
+        override fun onMessage(message: String) {
+            try {
+                val response = objectMapper.readValue(message, Map::class.java)
+                if (!receivedConfig) {
+                    // First message is agent config, skip it
+                    receivedConfig = true
+                    // Now send the actual prompt
+                    send(objectMapper.writeValueAsString(mapOf(
+                        "type" to messageType,
+                        "prompt" to prompt
+                    )))
+                } else {
+                    // Check if this is an "executing" response
+                    if (response["status"] == "executing") {
+                        // Wait for actual result
+                        return
+                    }
+                    @Suppress("UNCHECKED_CAST")
+                    resultHolder.complete(response as Map<String, Any?>)
+                    close()
+                }
+            } catch (e: Exception) {
+                resultHolder.completeExceptionally(e)
+                close()
+            }
+        }
+
+        override fun onClose(code: Int, reason: String, remote: Boolean) {
+            if (!resultHolder.isDone) {
+                resultHolder.complete(mapOf("error" to "Connection closed: $reason"))
+            }
+        }
+
+        override fun onError(ex: Exception) {
+            resultHolder.completeExceptionally(ex)
         }
     }
 

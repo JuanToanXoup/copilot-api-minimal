@@ -31,22 +31,35 @@ DESTRUCTIVE_TESTS = [
 ]
 
 
-def find_config_port():
-    """Find port from project config file."""
+def find_registry_port():
+    """Find port from centralized registry at ~/.citi-agent/registry.json."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
-    config_path = os.path.join(project_root, ".citi-agent", "project-agent-config.json")
 
-    if not os.path.exists(config_path):
-        config_path = os.path.join(os.getcwd(), ".citi-agent", "project-agent-config.json")
+    # Read from centralized registry
+    registry_path = os.path.join(os.path.expanduser("~"), ".citi-agent", "registry.json")
 
-    if os.path.exists(config_path):
+    if os.path.exists(registry_path):
         try:
-            with open(config_path, "r") as f:
-                config = json.load(f)
-                port = config.get("port")
-                if port and port > 0:
-                    return port
+            with open(registry_path, "r") as f:
+                registry = json.load(f)
+
+                # Find instances for this project path
+                for instance_id, entry in registry.items():
+                    entry_path = entry.get("projectPath", "")
+                    if entry_path == project_root:
+                        port = entry.get("port")
+                        if port and port > 0:
+                            return port
+
+                # If project not found by exact path, try to find any entry that ends with our project name
+                project_name = os.path.basename(project_root)
+                for instance_id, entry in registry.items():
+                    entry_path = entry.get("projectPath", "")
+                    if entry_path.endswith(project_name):
+                        port = entry.get("port")
+                        if port and port > 0:
+                            return port
         except Exception:
             pass
     return None
@@ -62,10 +75,10 @@ def main():
     parser.add_argument("--only", help="Run only this test (e.g., test_ping.py)")
     args = parser.parse_args()
 
-    # Priority: command line > config file > default
+    # Priority: command line > registry file > default
     if args.port is None:
-        args.port = find_config_port() or 8765
-        print(f"Using port {args.port} from config file")
+        args.port = find_registry_port() or 8765
+        print(f"Using port {args.port} from registry")
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     results = []
