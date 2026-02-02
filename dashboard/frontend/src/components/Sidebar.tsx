@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Bot, Circle, Plus, X, FolderOpen, Play } from 'lucide-react';
 import clsx from 'clsx';
 import type { Agent } from '../types';
+import { roleConfigs, getRoleConfig, roleOptions as roleConfigOptions } from '../utils/roleConfig';
+import { getDisplayName, formatProjectName } from '../utils/agentNaming';
 
 interface SidebarProps {
   agents: Agent[];
@@ -9,8 +11,7 @@ interface SidebarProps {
   onSpawnAgent?: (projectPath: string, role: string) => void;
 }
 
-
-const roleOptions = ['coder', 'reviewer', 'tester', 'docs', 'architect'];
+const roleOptions = roleConfigOptions.map(r => r.value);
 
 export default function Sidebar({ agents, onDragStart, onSpawnAgent }: SidebarProps) {
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
@@ -20,6 +21,12 @@ export default function Sidebar({ agents, onDragStart, onSpawnAgent }: SidebarPr
 
   const connectedAgents = agents.filter(a => a.connected);
   const disconnectedAgents = agents.filter(a => !a.connected);
+
+  // Collect existing agent names for unique name generation
+  const existingNames = useMemo(() =>
+    agents.map(a => a.agent_name).filter((n): n is string => !!n),
+    [agents]
+  );
 
   const handleSpawn = async () => {
     if (!newAgentPath.trim() || !onSpawnAgent) return;
@@ -36,29 +43,54 @@ export default function Sidebar({ agents, onDragStart, onSpawnAgent }: SidebarPr
   };
 
   const AgentCard = ({ agent }: { agent: Agent }) => {
+    const roleConfig = getRoleConfig(agent.role);
+    const RoleIcon = roleConfig.icon;
+    const displayName = getDisplayName(agent, existingNames);
+    const projectInfo = formatProjectName(agent.project_path);
+
     return (
       <div
         draggable
         onDragStart={(e) => onDragStart(e, agent)}
         className={clsx(
-          'bg-white rounded-lg border border-slate-200 p-2 cursor-grab active:cursor-grabbing',
-          'hover:shadow-md hover:border-blue-300 hover:bg-blue-50 transition-all'
+          'bg-white rounded-lg border-2 p-2 cursor-grab active:cursor-grabbing',
+          'hover:shadow-md transition-all',
+          roleConfig.borderColor,
+          'hover:border-blue-400'
         )}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bot className="w-4 h-4 text-slate-500" />
-            <span className="font-mono font-semibold text-sm text-slate-700">
-              :{agent.port}
-            </span>
-          </div>
+        {/* Agent name and status */}
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="font-semibold text-sm text-slate-700 truncate">
+            {displayName}
+          </span>
           <Circle className={clsx(
-            'w-2 h-2',
+            'w-2 h-2 flex-shrink-0',
             agent.connected ? 'fill-green-500 text-green-500' : 'fill-red-500 text-red-500'
           )} />
         </div>
-        <div className="text-xs text-slate-400 mt-1 truncate">
-          {agent.project_name}
+
+        {/* Role badge and port */}
+        <div className="flex items-center justify-between">
+          <span className={clsx(
+            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium',
+            roleConfig.bgColor,
+            roleConfig.color
+          )}>
+            <RoleIcon className="w-3 h-3" />
+            {roleConfig.label}
+          </span>
+          <span className="font-mono text-xs text-slate-400">
+            :{agent.port}
+          </span>
+        </div>
+
+        {/* Project path with tooltip */}
+        <div
+          className="text-xs text-slate-400 mt-1.5 truncate"
+          title={projectInfo.needsTooltip ? projectInfo.full : undefined}
+        >
+          {projectInfo.display}
         </div>
       </div>
     );
@@ -188,20 +220,25 @@ export default function Sidebar({ agents, onDragStart, onSpawnAgent }: SidebarPr
                   Agent Role
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {roleOptions.map((role) => (
-                    <button
-                      key={role}
-                      onClick={() => setNewAgentRole(role)}
-                      className={clsx(
-                        'px-3 py-2 rounded-lg text-sm font-medium transition-all capitalize',
-                        newAgentRole === role
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      )}
-                    >
-                      {role}
-                    </button>
-                  ))}
+                  {roleOptions.map((role) => {
+                    const config = roleConfigs[role];
+                    const Icon = config.icon;
+                    return (
+                      <button
+                        key={role}
+                        onClick={() => setNewAgentRole(role)}
+                        className={clsx(
+                          'px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5',
+                          newAgentRole === role
+                            ? clsx(config.bgColor, config.color, 'ring-2 ring-offset-1', config.borderColor.replace('border-', 'ring-'))
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        )}
+                      >
+                        <Icon className="w-4 h-4" />
+                        {config.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>

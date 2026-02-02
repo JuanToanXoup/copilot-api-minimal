@@ -6,6 +6,8 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  useReactFlow,
+  ReactFlowProvider,
   BackgroundVariant,
   type Connection,
   type Node,
@@ -13,6 +15,7 @@ import {
   type NodeTypes,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { LayoutGrid, Settings } from 'lucide-react';
 
 import PromptNode from './components/PromptNode';
 import AgentNode from './components/AgentNode';
@@ -24,9 +27,14 @@ import EvaluatorNode from './components/EvaluatorNode';
 import TemplateSelector from './components/TemplateSelector';
 import FlowManager from './components/FlowManager';
 import Sidebar from './components/Sidebar';
+import ToastContainer from './components/Toast';
+import RoleEditor from './components/RoleEditor';
+import BlockEditor from './components/BlockEditor';
 import { useStore } from './store';
 import { workflowTemplates, type WorkflowTemplate } from './workflowTemplates';
 import { validateOutput, generateRetryPrompt } from './utils/outputValidator';
+import { getHierarchicalLayout } from './utils/canvasLayout';
+import { formatErrorForToast } from './utils/errorMessages';
 import type { Agent } from './types';
 
 const nodeTypes: NodeTypes = {
@@ -52,13 +60,19 @@ function getAgentFromNode(node: Node): Agent | null {
   return data?.agent || null;
 }
 
-export default function App() {
-  const { agents, setAgents, addActivity, connected, setConnected } = useStore();
+function AppContent() {
+  const { agents, setAgents, addActivity, connected, setConnected, addToast } = useStore();
+  const { fitView } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [workflowStatus, setWorkflowStatus] = useState<'idle' | 'running' | 'complete'>('idle');
   const [selectedTemplate, setSelectedTemplate] = useState<string>(defaultTemplate.id);
+  const [showRoleEditor, setShowRoleEditor] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Get the selected node object
+  const selectedNode = selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) || null : null;
   const nodeIdCounter = useRef(10);
 
   // Connect to backend WebSocket
@@ -95,9 +109,20 @@ export default function App() {
             } else if (data.type === 'spawn_result') {
               console.log('Spawn result:', data);
               if (data.error) {
-                alert(`Failed to spawn agent: ${data.error}`);
+                const { title, description } = formatErrorForToast(data.error);
+                addToast({
+                  type: 'error',
+                  title,
+                  message: description,
+                });
+              } else {
+                addToast({
+                  type: 'success',
+                  title: 'Agent Launched',
+                  message: 'New agent is starting up...',
+                  duration: 3000,
+                });
               }
-              // Success case: no dialog, agent will appear in sidebar when ready
             }
           } catch (err) {
             console.error('Error parsing message:', err);
@@ -217,10 +242,38 @@ export default function App() {
     event.dataTransfer.effectAllowed = 'move';
   }, []);
 
+  // Handle node click to open block editor
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    if (node.type === 'agent') {
+      setSelectedNodeId(node.id);
+    }
+  }, []);
+
+  // Handle updating node data from BlockEditor
+  const handleUpdateNodeData = useCallback((nodeId: string, updates: Record<string, unknown>) => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === nodeId) {
+          return { ...node, data: { ...node.data, ...updates } };
+        }
+        return node;
+      })
+    );
+  }, [setNodes]);
+
+  // Close block editor when clicking on canvas background
+  const onPaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
   const onSpawnAgent = useCallback((projectPath: string, role: string) => {
     if (!wsRef.current) {
       console.error('WebSocket not connected');
-      alert('Not connected to backend');
+      addToast({
+        type: 'error',
+        title: 'Not Connected',
+        message: 'Cannot spawn agent while disconnected from backend.',
+      });
       return;
     }
 
@@ -230,7 +283,25 @@ export default function App() {
       project_path: projectPath,
       role: role,
     }));
-  }, []);
+  }, [addToast]);
+
+  // Auto-arrange nodes in hierarchical layout
+  const handleAutoArrange = useCallback(() => {
+    const arrangedNodes = getHierarchicalLayout(nodes, edges);
+    setNodes(arrangedNodes);
+
+    // Fit view after a short delay to allow layout to settle
+    setTimeout(() => {
+      fitView({ padding: 0.2, duration: 300 });
+    }, 50);
+
+    addToast({
+      type: 'info',
+      title: 'Layout Applied',
+      message: 'Nodes arranged in hierarchical layout.',
+      duration: 2000,
+    });
+  }, [nodes, edges, setNodes, fitView, addToast]);
 
   // Supervisor-based workflow execution
   const runSupervisorWorkflow = useCallback(async (prompt: string) => {
@@ -307,8 +378,13 @@ export default function App() {
 
       if (!agentNode) continue;
 
+      // Get node config for role display
+      const preNodeData = agentNode.data as { role?: string; label?: string };
+      const displayRole = preNodeData.role || 'coder';
+      const displayLabel = preNodeData.label || 'Agent';
+
       stepCount++;
-      history.push({ step: stepCount, action: 'route', agent: `Agent :${agent.port}` });
+      history.push({ step: stepCount, action: 'route', agent: `${displayLabel} (${displayRole}) :${agent.port}` });
 
       // Update supervisor and agent status
       setNodes((nds) =>
@@ -319,7 +395,7 @@ export default function App() {
               data: {
                 ...node.data,
                 history: [...history],
-                currentStep: `Waiting for Agent :${agent.port}...`
+                currentStep: `Waiting for ${displayLabel} (${displayRole})...`
               }
             };
           }
@@ -331,14 +407,44 @@ export default function App() {
       );
 
       // Send to agent with validation and retry logic
-      const nodeData = agentNode.data as { outputType?: string; outputSchema?: string };
+      const nodeData = agentNode.data as {
+        role?: string;
+        outputType?: string;
+        outputSchema?: string;
+        label?: string;
+      };
+      const role = nodeData.role || 'coder';
       const outputType = nodeData.outputType || 'text';
       const outputSchema = nodeData.outputSchema;
+      const nodeLabel = nodeData.label || 'Agent';
+
+      // Build role-aware prompt
+      const roleDescriptions: Record<string, string> = {
+        coder: 'You are a software developer. Write clean, efficient code.',
+        reviewer: 'You are a code reviewer. Analyze code for issues, suggest improvements.',
+        tester: 'You are a QA engineer. Write tests and identify edge cases.',
+        architect: 'You are a software architect. Design systems and provide high-level guidance.',
+        docs: 'You are a technical writer. Create clear documentation and explanations.',
+        debugger: 'You are a debugging specialist. Find and fix bugs, diagnose issues.',
+      };
+
+      const outputTypeInstructions: Record<string, string> = {
+        text: 'Respond with plain text.',
+        code: 'Respond with code in a code block (```language).',
+        json: 'Respond with valid JSON only.',
+        markdown: 'Respond with formatted markdown.',
+      };
+
+      const roleContext = `[Role: ${role.toUpperCase()}] ${roleDescriptions[role] || ''}
+[Expected Output: ${outputType.toUpperCase()}] ${outputTypeInstructions[outputType] || ''}
+
+`;
+
       const maxRetries = 2;
       let retryCount = 0;
       let finalResponse = '';
       let isError = false;
-      let promptToSend = currentPrompt;
+      let promptToSend = roleContext + currentPrompt;
 
       while (retryCount <= maxRetries) {
         const result = await sendPromptToAgent(agent.instance_id, promptToSend);
@@ -459,7 +565,7 @@ export default function App() {
       );
 
       results.push({
-        role: `Agent :${agent.port}`,
+        role: `${nodeLabel} (${role})`,
         response: finalResponse,
         timestamp: new Date().toISOString(),
         port: agent.port,
@@ -751,6 +857,12 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen">
+      {/* Toast notifications */}
+      <ToastContainer />
+
+      {/* Role Editor Modal */}
+      <RoleEditor isOpen={showRoleEditor} onClose={() => setShowRoleEditor(false)} />
+
       {/* Left sidebar: Templates + Agents */}
       <div className="w-72 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden">
         {/* Template Selector */}
@@ -767,17 +879,37 @@ export default function App() {
         </div>
       </div>
 
-      <div className="flex-1 relative">
+      <div className="flex-1 flex relative">
+        {/* Canvas area */}
+        <div className="flex-1 relative">
         {/* Top toolbar */}
         <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
-          {/* Flow Manager */}
-          <div className="bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200">
-            <FlowManager
-              nodes={nodes}
-              edges={edges}
-              selectedTemplate={selectedTemplate}
-              onLoadFlow={handleLoadFlow}
-            />
+          {/* Flow Manager and Auto-arrange */}
+          <div className="flex items-center gap-2">
+            <div className="bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200">
+              <FlowManager
+                nodes={nodes}
+                edges={edges}
+                selectedTemplate={selectedTemplate}
+                onLoadFlow={handleLoadFlow}
+              />
+            </div>
+            <button
+              onClick={handleAutoArrange}
+              className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors text-sm text-slate-600"
+              title="Auto-arrange nodes"
+            >
+              <LayoutGrid className="w-4 h-4" />
+              <span>Auto Layout</span>
+            </button>
+            <button
+              onClick={() => setShowRoleEditor(true)}
+              className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors text-sm text-slate-600"
+              title="Edit role definitions"
+            >
+              <Settings className="w-4 h-4" />
+              <span>Edit Roles</span>
+            </button>
           </div>
 
           {/* Connection Status */}
@@ -797,6 +929,8 @@ export default function App() {
           onConnect={onConnect}
           onDrop={onDrop}
           onDragOver={onDragOver}
+          onNodeClick={onNodeClick}
+          onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
           fitView
           className="bg-slate-50"
@@ -804,7 +938,26 @@ export default function App() {
           <Controls className="bg-white border border-slate-200 rounded-lg" />
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#cbd5e1" />
         </ReactFlow>
+        </div>
+
+        {/* Block Editor Panel */}
+        {selectedNode && (
+          <BlockEditor
+            node={selectedNode}
+            onClose={() => setSelectedNodeId(null)}
+            onUpdateNode={handleUpdateNodeData}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+// Wrap with ReactFlowProvider to enable useReactFlow hook
+export default function App() {
+  return (
+    <ReactFlowProvider>
+      <AppContent />
+    </ReactFlowProvider>
   );
 }

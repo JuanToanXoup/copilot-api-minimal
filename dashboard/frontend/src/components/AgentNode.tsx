@@ -1,8 +1,13 @@
-import { memo, useState, useCallback } from 'react';
+import { memo, useState, useCallback, useMemo } from 'react';
 import { Handle, Position, useReactFlow } from '@xyflow/react';
-import { Bot, Loader2, CheckCircle2, XCircle, Circle, ChevronDown, ChevronUp, Code, FileJson, FileText, FileCode } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Circle, ChevronDown, ChevronUp, Code, FileJson, FileText, FileCode, Maximize2, Minimize2, Eye, EyeOff } from 'lucide-react';
 import clsx from 'clsx';
 import type { Agent } from '../types';
+import { getRoleConfig } from '../utils/roleConfig';
+import { getDisplayName } from '../utils/agentNaming';
+import { getUserFriendlyError, isErrorResponse } from '../utils/errorMessages';
+import { generatePromptPreview } from '../utils/promptBuilder';
+import { useStore } from '../store';
 
 // Output type options
 const outputTypes = [
@@ -49,14 +54,38 @@ function decodeHtml(html: string): string {
 function AgentNode({ id, data }: AgentNodeProps) {
   const { agent, status, prompt, response, role, outputType, outputSchema } = data;
   const { setNodes } = useReactFlow();
-  const [isExpanded, setIsExpanded] = useState(true);
+  const { roleDefinitions } = useStore();
+  const [isExpanded, setIsExpanded] = useState(true); // Default to expanded to show config
+  const [isResponseExpanded, setIsResponseExpanded] = useState(false);
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
   const [showOutputTypeDropdown, setShowOutputTypeDropdown] = useState(false);
   const [showSchemaEditor, setShowSchemaEditor] = useState(false);
+  const [showPromptPreview, setShowPromptPreview] = useState(false);
 
   const selectedRole = roleOptions.find(r => r.value === role) || roleOptions[0];
   const selectedOutputType = outputTypes.find(t => t.value === outputType) || outputTypes[0];
   const OutputIcon = selectedOutputType.icon;
+
+  // Get role config for enhanced styling
+  const roleConfig = getRoleConfig(role);
+  const RoleIcon = roleConfig.icon;
+  const displayName = agent ? getDisplayName(agent) : data.label || 'Agent';
+
+  // Process error response for user-friendly display
+  const hasError = status === 'error' || (response && isErrorResponse(response));
+  const friendlyError = hasError && response ? getUserFriendlyError(response) : null;
+
+  // Generate prompt preview based on current configuration
+  const promptPreview = useMemo(() => {
+    return generatePromptPreview(
+      {
+        role: role || 'coder',
+        outputType: outputType || 'text',
+        outputSchema: outputSchema,
+      },
+      roleDefinitions
+    );
+  }, [role, outputType, outputSchema, roleDefinitions]);
 
   // Update node data
   const updateNodeData = useCallback((updates: Partial<AgentNodeData>) => {
@@ -102,7 +131,7 @@ function AgentNode({ id, data }: AgentNodeProps) {
     waiting: 'border-amber-300 bg-amber-50',
     running: 'border-blue-400 bg-blue-50',
     success: 'border-green-400 bg-green-50',
-    error: 'border-red-400 bg-red-50',
+    error: 'border-red-400 bg-red-50 ring-2 ring-red-300 ring-offset-1',
   };
 
   // Get schema placeholder based on output type
@@ -137,17 +166,25 @@ function AgentNode({ id, data }: AgentNodeProps) {
       statusColors[status]
     )}>
       {/* Header */}
-      <div className="px-3 py-2 bg-white border-b flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bot className="w-4 h-4 text-slate-600" />
-          <span className="font-semibold text-slate-700 text-sm">
-            {agent ? `:${agent.port}` : data.label || 'Agent'}
+      <div className={clsx(
+        'px-3 py-2 border-b flex items-center justify-between',
+        hasError ? 'bg-red-50' : 'bg-white'
+      )}>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <RoleIcon className={clsx('w-4 h-4 flex-shrink-0', roleConfig.color)} />
+          <span className="font-semibold text-slate-700 text-sm truncate">
+            {displayName}
           </span>
+          {agent && (
+            <span className="text-xs text-slate-400 flex-shrink-0">
+              :{agent.port}
+            </span>
+          )}
           {agent?.connected && (
-            <span className="w-2 h-2 rounded-full bg-green-500" title="Connected" />
+            <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" title="Connected" />
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-shrink-0">
           <StatusIcon />
           <button
             onClick={() => setIsExpanded(!isExpanded)}
@@ -285,6 +322,42 @@ function AgentNode({ id, data }: AgentNodeProps) {
             )}
           </div>
 
+          {/* Prompt Preview Section */}
+          <div className="px-3 py-2 border-b bg-slate-50">
+            <button
+              onClick={() => setShowPromptPreview(!showPromptPreview)}
+              className="w-full text-[10px] text-slate-600 hover:text-blue-600 flex items-center justify-between gap-1 font-medium"
+            >
+              <span className="flex items-center gap-1">
+                {showPromptPreview ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                {showPromptPreview ? 'Hide' : 'Preview'} Generated Prompt
+              </span>
+              <ChevronDown className={clsx(
+                'w-3 h-3 transition-transform',
+                showPromptPreview && 'rotate-180'
+              )} />
+            </button>
+
+            {showPromptPreview && (
+              <div className="mt-2 nodrag nowheel">
+                <div className="text-[9px] text-slate-500 mb-1 uppercase tracking-wide font-medium">
+                  System Context (prepended to input)
+                </div>
+                <div className={clsx(
+                  'text-[10px] font-mono rounded border p-2',
+                  'bg-amber-50 border-amber-200 text-slate-700',
+                  'whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto'
+                )}>
+                  {promptPreview}
+                </div>
+                <div className="text-[9px] text-slate-400 mt-1.5 flex items-start gap-1">
+                  <span className="text-amber-500">*</span>
+                  <span>This context is automatically added before your workflow input when the agent runs.</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Runtime Input (from workflow execution) */}
           {prompt && (
             <div className="px-3 py-2 border-b">
@@ -302,20 +375,55 @@ function AgentNode({ id, data }: AgentNodeProps) {
             <div className="px-3 py-2">
               <div className="flex items-center justify-between mb-1">
                 <div className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">
-                  Output
+                  {hasError ? 'Error' : 'Output'}
                 </div>
-                <span className={clsx('px-1 py-0.5 rounded text-[9px] font-medium flex items-center gap-0.5', selectedOutputType.color)}>
-                  <OutputIcon className="w-2.5 h-2.5" />
-                  {selectedOutputType.label}
-                </span>
+                <div className="flex items-center gap-1">
+                  <span className={clsx('px-1 py-0.5 rounded text-[9px] font-medium flex items-center gap-0.5', selectedOutputType.color)}>
+                    <OutputIcon className="w-2.5 h-2.5" />
+                    {selectedOutputType.label}
+                  </span>
+                  <button
+                    onClick={() => setIsResponseExpanded(!isResponseExpanded)}
+                    className="p-0.5 hover:bg-slate-100 rounded"
+                    title={isResponseExpanded ? 'Collapse' : 'Expand'}
+                  >
+                    {isResponseExpanded ? (
+                      <Minimize2 className="w-3 h-3 text-slate-400" />
+                    ) : (
+                      <Maximize2 className="w-3 h-3 text-slate-400" />
+                    )}
+                  </button>
+                </div>
               </div>
-              <div className={clsx(
-                'text-xs line-clamp-4 rounded p-2 border',
-                status === 'error' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-slate-700 border-green-200',
-                outputType === 'code' && 'font-mono text-[10px]'
-              )}>
-                {decodeHtml(response)}
-              </div>
+
+              {/* Error display with friendly message */}
+              {hasError && friendlyError ? (
+                <div className="rounded border border-red-200 bg-red-50 overflow-hidden">
+                  <div className="px-2 py-1.5 border-b border-red-200 bg-red-100">
+                    <span className="text-xs font-medium text-red-700">{friendlyError.title}</span>
+                  </div>
+                  <div className="px-2 py-1.5">
+                    <p className="text-xs text-red-700">{friendlyError.message}</p>
+                    <p className="text-[10px] text-red-500 mt-1">{friendlyError.suggestion}</p>
+                  </div>
+                  {isResponseExpanded && (
+                    <div className="px-2 py-1.5 border-t border-red-200 bg-red-50">
+                      <p className="text-[10px] font-mono text-red-600 whitespace-pre-wrap break-words">
+                        {decodeHtml(response)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className={clsx(
+                  'text-xs rounded p-2 border nodrag nowheel',
+                  'bg-green-50 text-slate-700 border-green-200',
+                  outputType === 'code' && 'font-mono text-[10px]',
+                  isResponseExpanded ? 'max-h-[300px] overflow-y-auto whitespace-pre-wrap break-words' : 'line-clamp-4'
+                )}>
+                  {decodeHtml(response)}
+                </div>
+              )}
             </div>
           )}
 
@@ -330,14 +438,29 @@ function AgentNode({ id, data }: AgentNodeProps) {
 
       {/* Collapsed state summary */}
       {!isExpanded && (
-        <div className="px-3 py-1.5 text-[10px] text-slate-500 flex items-center gap-2">
-          <span className={clsx('px-1.5 py-0.5 rounded font-medium', selectedRole.color)}>
-            {selectedRole.label}
-          </span>
-          <span className={clsx('px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5', selectedOutputType.color)}>
-            <OutputIcon className="w-2.5 h-2.5" />
-            {selectedOutputType.label}
-          </span>
+        <div
+          className="px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors"
+          onClick={() => setIsExpanded(true)}
+        >
+          <div className="flex items-center gap-2 text-[10px] text-slate-500">
+            <span className={clsx('px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5', roleConfig.bgColor, roleConfig.color)}>
+              <RoleIcon className="w-2.5 h-2.5" />
+              {roleConfig.label}
+            </span>
+            <span className={clsx('px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5', selectedOutputType.color)}>
+              <OutputIcon className="w-2.5 h-2.5" />
+              {selectedOutputType.label}
+            </span>
+            {hasError && (
+              <span className="px-1.5 py-0.5 rounded font-medium bg-red-100 text-red-700">
+                Error
+              </span>
+            )}
+          </div>
+          <div className="text-[9px] text-slate-400 mt-1 flex items-center gap-1">
+            <ChevronDown className="w-3 h-3" />
+            Click to configure role, output & schema
+          </div>
         </div>
       )}
 
