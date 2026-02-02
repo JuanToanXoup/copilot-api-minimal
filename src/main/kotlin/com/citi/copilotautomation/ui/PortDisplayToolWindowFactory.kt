@@ -162,11 +162,13 @@ class ProjectCellRenderer : DefaultTableCellRenderer() {
 
         val text = value as? String ?: ""
         if (text.endsWith(" ●")) {
-            label.text = text.dropLast(2)
+            label.text = "${text.dropLast(2)} [THIS]"
             label.font = Font(label.font.name, Font.BOLD, label.font.size)
-            label.toolTipText = "Current instance"
+            label.foreground = Color(59, 130, 246) // Blue color
+            label.toolTipText = "This is your current IDE instance"
         } else {
             label.font = Font(label.font.name, Font.PLAIN, label.font.size)
+            label.foreground = if (isSelected) table.selectionForeground else table.foreground
             label.toolTipText = null
         }
 
@@ -321,68 +323,33 @@ class RegistryDisplayPanel(private val project: Project) : JPanel(BorderLayout()
         }
 
         if (instanceStatus.isCurrentInstance) {
-            statusLabel.text = "Cannot close current IDE"
+            // For current instance, just stop the server
+            ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    val service = project.getService(CopilotWebSocketProjectService::class.java)
+                    service?.stopServer()
+                    ApplicationManager.getApplication().invokeLater {
+                        statusLabel.text = "Server stopped for current instance"
+                        Timer(1000) { updateStatus() }.apply { isRepeats = false; start() }
+                    }
+                } catch (e: Exception) {
+                    ApplicationManager.getApplication().invokeLater {
+                        statusLabel.text = "Error: ${e.message}"
+                    }
+                }
+            }
             return
         }
 
+        // For other instances, we can only remove from registry
+        // Killing the process would close ALL windows in that process
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                // Use the stored PID if available
-                val pid = instanceStatus.pid
-                if (pid != null && pid > 0) {
-                    val killProcess = ProcessBuilder("kill", "-TERM", pid.toString())
-                        .redirectErrorStream(true)
-                        .start()
-                    killProcess.waitFor()
-
-                    if (killProcess.exitValue() == 0) {
-                        ApplicationManager.getApplication().invokeLater {
-                            statusLabel.text = "Closing ${instanceStatus.projectName}..."
-                            Timer(2000) { updateStatus() }.apply { isRepeats = false; start() }
-                        }
-                        return@executeOnPooledThread
-                    }
-                }
-
-                // Fallback: Find the process that owns the port using lsof
-                val lsofProcess = ProcessBuilder("lsof", "-t", "-i", ":${instanceStatus.port}")
-                    .redirectErrorStream(true)
-                    .start()
-
-                val pids = lsofProcess.inputStream.bufferedReader().readText().trim().lines()
-                    .filter { it.isNotBlank() }
-                    .mapNotNull { it.trim().toIntOrNull() }
-
-                if (pids.isEmpty()) {
-                    ApplicationManager.getApplication().invokeLater {
-                        statusLabel.text = "No process found on port ${instanceStatus.port}"
-                    }
-                    return@executeOnPooledThread
-                }
-
-                // For each PID, find the top-level IDE process and terminate it
-                var terminated = false
-                for (foundPid in pids) {
-                    val ideaPid = findIdeaParentPid(foundPid) ?: foundPid
-
-                    val killProcess = ProcessBuilder("kill", "-TERM", ideaPid.toString())
-                        .redirectErrorStream(true)
-                        .start()
-                    killProcess.waitFor()
-
-                    if (killProcess.exitValue() == 0) {
-                        terminated = true
-                        break
-                    }
-                }
-
+                // Remove from registry - the instance will appear as "not running"
+                PortRegistry.removeInstance(instanceStatus.instanceId)
                 ApplicationManager.getApplication().invokeLater {
-                    if (terminated) {
-                        statusLabel.text = "Closing ${instanceStatus.projectName}..."
-                        Timer(2000) { updateStatus() }.apply { isRepeats = false; start() }
-                    } else {
-                        statusLabel.text = "Failed to close IDE"
-                    }
+                    statusLabel.text = "Removed ${instanceStatus.projectName} from registry"
+                    Timer(1000) { updateStatus() }.apply { isRepeats = false; start() }
                 }
             } catch (e: Exception) {
                 ApplicationManager.getApplication().invokeLater {
