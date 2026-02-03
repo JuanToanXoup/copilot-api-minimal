@@ -326,7 +326,7 @@ export default function PromptsTab() {
       />
 
       {/* Left Sidebar - Prompt List */}
-      <div className="w-80 bg-white border-r border-slate-200 flex flex-col">
+      <div className="w-64 bg-white border-r border-slate-200 flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-slate-200">
           <div className="flex items-center justify-between mb-3">
