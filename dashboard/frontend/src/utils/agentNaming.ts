@@ -54,7 +54,7 @@ export function generateAgentName(
 
 /**
  * Get the display name for an agent
- * Prefers agent_name if set, otherwise generates one
+ * Prefers role over "Default Agent", then agent_name if meaningful
  */
 export function getDisplayName(
   agent: Agent | null | undefined,
@@ -62,8 +62,13 @@ export function getDisplayName(
 ): string {
   if (!agent) return 'Unknown';
 
-  // Use explicit agent_name if available
-  if (agent.agent_name) {
+  // Prefer role if set (capitalize first letter)
+  if (agent.role) {
+    return agent.role.charAt(0).toUpperCase() + agent.role.slice(1);
+  }
+
+  // Use explicit agent_name if available and not "Default Agent"
+  if (agent.agent_name && agent.agent_name !== 'Default Agent') {
     return agent.agent_name;
   }
 

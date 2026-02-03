@@ -24,10 +24,11 @@ import SupervisorNode from './components/SupervisorNode';
 import RouterNode from './components/RouterNode';
 import AggregatorNode from './components/AggregatorNode';
 import EvaluatorNode from './components/EvaluatorNode';
-import PromptBlockNode, { type PromptBlockData } from './components/PromptBlockNode';
+import PromptBlockNode from './components/PromptBlockNode';
 import WorkflowStartNode from './components/WorkflowStartNode';
 import TemplateSelector from './components/TemplateSelector';
 import FlowManager from './components/FlowManager';
+import PromptTemplateManager from './components/PromptTemplateManager';
 import Sidebar from './components/Sidebar';
 import ToastContainer from './components/Toast';
 import RoleEditor from './components/RoleEditor';
@@ -41,14 +42,8 @@ import { validateOutput, generateRetryPrompt } from './utils/outputValidator';
 import { getHierarchicalLayout } from './utils/canvasLayout';
 import { formatErrorForToast } from './utils/errorMessages';
 import { initializeMockData } from './utils/mockData';
-import {
-  substituteVariables,
-  extractOutputs,
-  getUpstreamNodeIds,
-  getExecutionOrder,
-  type WorkflowContext,
-} from './utils/workflowVariables';
-import type { Agent, Instance, TaskQueues, FailureState, OrchestratorEvent, PromptMetrics } from './types';
+import { getExecutionOrder } from './utils/workflowVariables';
+import type { Agent, Instance, TaskQueues, FailureState, OrchestratorEvent, PromptMetrics, PromptBlockNodeData, VariableBinding } from './types';
 
 const nodeTypes: NodeTypes = {
   prompt: PromptNode,
@@ -91,6 +86,7 @@ function AppContent() {
     updateFailure,
     addEvent,
     setPromptMetrics,
+    getPromptTemplateById,
   } = useStore();
   const { fitView } = useReactFlow();
 
@@ -825,17 +821,112 @@ function AppContent() {
     return order;
   };
 
-  // Run prompt block workflow with variable substitution
+  // Helper: Substitute variables in a template string
+  // - {{input}} always comes from workflow start
+  // - Other variables auto-resolve from upstream node outputs (via connections)
+  // - Static bindings override auto-resolution
+  const substituteTemplateVariables = (
+    template: string,
+    bindings: VariableBinding[],
+    workflowInput: string,
+    nodeOutputs: Record<string, unknown>
+  ): string => {
+    let result = template;
+    const variableRegex = /\{\{(\w+)\}\}/g;
+
+    result = result.replace(variableRegex, (match, varName) => {
+      // {{input}} always comes from workflow start
+      if (varName === 'input') {
+        return workflowInput;
+      }
+
+      // Check for static binding override
+      const binding = bindings.find((b) => b.variableName === varName);
+      if (binding?.source === 'static') {
+        return binding.staticValue || '';
+      }
+
+      // Auto-resolve from upstream connections
+      // Look through all upstream outputs for a matching key
+      for (const nodeId of Object.keys(nodeOutputs)) {
+        const outputs = nodeOutputs[nodeId];
+        if (outputs && typeof outputs === 'object') {
+          const outputObj = outputs as Record<string, unknown>;
+          // Check if this node's output has the variable name as a key
+          if (varName in outputObj) {
+            const value = outputObj[varName];
+            return typeof value === 'string' ? value : JSON.stringify(value);
+          }
+          // Also check for 'output' as a fallback (common default name)
+          if (varName === 'output' && 'output' in outputObj) {
+            const value = outputObj.output;
+            return typeof value === 'string' ? value : JSON.stringify(value);
+          }
+        }
+      }
+
+      // If still not found, keep the placeholder (will show as unresolved)
+      return match;
+    });
+
+    return result;
+  };
+
+  // Helper: Extract output from response based on template config
+  const extractTemplateOutput = (
+    response: string,
+    mode: string,
+    pattern?: string
+  ): unknown => {
+    switch (mode) {
+      case 'json':
+        try {
+          return JSON.parse(response);
+        } catch {
+          return response;
+        }
+      case 'jsonpath':
+        // Simple JSONPath implementation for common cases
+        if (pattern) {
+          try {
+            const json = JSON.parse(response);
+            const path = pattern.replace(/^\$\.?/, '').split('.');
+            let value: unknown = json;
+            for (const key of path) {
+              if (value && typeof value === 'object') {
+                value = (value as Record<string, unknown>)[key];
+              } else {
+                return response;
+              }
+            }
+            return value;
+          } catch {
+            return response;
+          }
+        }
+        return response;
+      case 'regex':
+        if (pattern) {
+          const match = response.match(new RegExp(pattern));
+          return match ? match[1] || match[0] : response;
+        }
+        return response;
+      case 'first_line':
+        return response.split('\n')[0];
+      case 'full':
+      default:
+        return response;
+    }
+  };
+
+  // Run prompt block workflow with reference-based architecture
   const runPromptBlockWorkflow = useCallback(async (input: string) => {
     if (!wsRef.current || workflowStatus === 'running') return;
 
     setWorkflowStatus('running');
 
-    // Initialize context with input
-    const context: WorkflowContext = {
-      input,
-      nodeOutputs: {},
-    };
+    // Context for variable substitution
+    const nodeOutputs: Record<string, unknown> = {};
 
     // Reset all nodes to idle
     setNodes((nds) =>
@@ -846,7 +937,7 @@ function AppContent() {
         if (node.type === 'promptBlock') {
           return {
             ...node,
-            data: { ...node.data, status: 'idle', prompt: '', response: '', extractedOutputs: {} },
+            data: { ...node.data, status: 'idle', resolvedPrompt: '', response: '', extractedOutput: null },
           };
         }
         if (node.type === 'output') {
@@ -858,32 +949,21 @@ function AppContent() {
 
     // Get execution order
     const executionOrder = getExecutionOrder(nodes, edges);
-    const results: Array<{ label: string; response: string; outputs: Record<string, unknown> }> = [];
+    const results: Array<{ label: string; response: string; output: unknown }> = [];
 
     // Execute nodes in order
     for (const nodeId of executionOrder) {
       const node = nodes.find((n) => n.id === nodeId);
-      if (!node) continue;
+      if (!node || node.type !== 'promptBlock') continue;
 
-      // Skip non-promptBlock nodes
-      if (node.type !== 'promptBlock') continue;
+      const blockData = node.data as unknown as PromptBlockNodeData;
 
-      const blockData = node.data as unknown as PromptBlockData;
+      // Resolve agent reference from store (source of truth)
+      const targetAgent = blockData.agentId
+        ? agents.find((a) => a.instance_id === blockData.agentId)
+        : null;
 
-      // Determine which agent/port to use
-      // Priority: manual port > assigned agent
-      const manualPort = blockData.port;
-      let targetAgent = blockData.agent;
-
-      // If manual port is set, try to find a matching agent
-      if (manualPort) {
-        const agentByPort = agents.find((a) => a.port === manualPort && a.connected);
-        if (agentByPort) {
-          targetAgent = agentByPort;
-        }
-      }
-
-      // Skip if no agent/port available
+      // Skip if no agent or not connected
       if (!targetAgent || !targetAgent.connected) {
         setNodes((nds) =>
           nds.map((n) =>
@@ -893,9 +973,9 @@ function AppContent() {
                   data: {
                     ...n.data,
                     status: 'error',
-                    response: manualPort
-                      ? `No connected agent found on port ${manualPort}`
-                      : 'No agent assigned or agent not connected',
+                    response: blockData.agentId
+                      ? 'Agent not connected'
+                      : 'No agent selected',
                   },
                 }
               : n
@@ -904,22 +984,42 @@ function AppContent() {
         continue;
       }
 
-      // Get upstream node IDs
-      const upstreamIds = getUpstreamNodeIds(nodeId, nodes, edges);
+      // Resolve prompt template reference from store (source of truth)
+      const template = blockData.promptTemplateId
+        ? getPromptTemplateById(blockData.promptTemplateId)
+        : null;
+
+      if (!template) {
+        setNodes((nds) =>
+          nds.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: 'error',
+                    response: 'No prompt template selected',
+                  },
+                }
+              : n
+          )
+        );
+        continue;
+      }
 
       // Substitute variables in template
-      const resolvedPrompt = substituteVariables(
-        blockData.promptTemplate || '',
+      const resolvedPrompt = substituteTemplateVariables(
+        template.template,
         blockData.variableBindings || [],
-        context,
-        upstreamIds
+        input,
+        nodeOutputs
       );
 
       // Update node to show running state with resolved prompt
       setNodes((nds) =>
         nds.map((n) =>
           n.id === nodeId
-            ? { ...n, data: { ...n.data, status: 'running', prompt: resolvedPrompt } }
+            ? { ...n, data: { ...n.data, status: 'running', resolvedPrompt } }
             : n
         )
       );
@@ -929,11 +1029,15 @@ function AppContent() {
       const isError = !!result.error;
       const response = result.content || result.error || 'No response';
 
-      // Extract outputs from response
-      const extractedOutputs = extractOutputs(response, blockData.outputExtractions || []);
+      // Extract output based on template configuration
+      const extractedOutput = extractTemplateOutput(
+        response,
+        template.outputExtraction.mode,
+        template.outputExtraction.pattern
+      );
 
-      // Store outputs in context for downstream nodes
-      context.nodeOutputs[nodeId] = extractedOutputs;
+      // Store output for downstream nodes (keyed by output name)
+      nodeOutputs[nodeId] = { [template.outputExtraction.outputName]: extractedOutput };
 
       // Update node with response
       setNodes((nds) =>
@@ -945,7 +1049,7 @@ function AppContent() {
                   ...n.data,
                   status: isError ? 'error' : 'success',
                   response,
-                  extractedOutputs,
+                  extractedOutput,
                 },
               }
             : n
@@ -953,9 +1057,9 @@ function AppContent() {
       );
 
       results.push({
-        label: blockData.label || 'Prompt Block',
+        label: blockData.label || template.name,
         response,
-        outputs: extractedOutputs,
+        output: extractedOutput,
       });
 
       // Small delay for visual effect
@@ -976,7 +1080,7 @@ function AppContent() {
               status: 'complete',
               results: results.map((r) => ({
                 role: r.label,
-                response: typeof r.outputs.output === 'string' ? r.outputs.output : JSON.stringify(r.outputs),
+                response: typeof r.output === 'string' ? r.output : JSON.stringify(r.output),
                 timestamp: new Date().toISOString(),
               })),
             },
@@ -987,7 +1091,7 @@ function AppContent() {
     );
 
     setWorkflowStatus('complete');
-  }, [nodes, edges, workflowStatus, setNodes]);
+  }, [nodes, edges, workflowStatus, setNodes, agents, getPromptTemplateById]);
 
   // Use ref to avoid infinite loop with runWorkflow dependency
   const runWorkflowRef = useRef(runWorkflow);
@@ -1215,13 +1319,17 @@ function AppContent() {
       <div className="flex-1 flex overflow-hidden">
         {viewMode === 'workflow' && (
           <>
-            {/* Left sidebar: Templates only */}
+            {/* Left sidebar: Workflow Templates + Prompt Registry */}
             <div className="w-72 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden">
-              <div className="p-4">
-                <TemplateSelector
-                  selectedTemplate={selectedTemplate}
-                  onSelectTemplate={handleSelectTemplate}
-                />
+              <div className="flex-1 overflow-y-auto">
+                <div className="p-4 border-b border-slate-200">
+                  <TemplateSelector
+                    selectedTemplate={selectedTemplate}
+                    onSelectTemplate={handleSelectTemplate}
+                  />
+                </div>
+                {/* Prompt Template Registry - like Postman's Collections */}
+                <PromptTemplateManager />
               </div>
             </div>
 

@@ -224,15 +224,21 @@ object PortRegistry {
                 val registry = readRegistry()
                 val existing = registry[instanceId]
                 if (existing != null) {
+                    // If role is being set and agentName is still "Default Agent", use role as agentName
+                    val effectiveAgentName = when {
+                        agentName != null -> agentName
+                        role != null && (existing.agentName == null || existing.agentName == "Default Agent") -> role
+                        else -> existing.agentName
+                    }
                     registry[instanceId] = existing.copy(
-                        agentName = agentName ?: existing.agentName,
+                        agentName = effectiveAgentName,
                         agentDescription = agentDescription ?: existing.agentDescription,
                         role = role ?: existing.role,
                         capabilities = capabilities ?: existing.capabilities,
                         systemPrompt = systemPrompt ?: existing.systemPrompt
                     )
                     writeRegistry(registry)
-                    LOG.info("[PortRegistry] Set agent config for instance: $instanceId")
+                    LOG.info("[PortRegistry] Set agent config for instance: $instanceId (agentName=$effectiveAgentName, role=$role)")
                 }
             }
         } catch (e: Exception) {

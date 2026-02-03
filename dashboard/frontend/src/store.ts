@@ -8,6 +8,7 @@ import type {
   OrchestratorEvent,
   PromptMetrics,
   ViewMode,
+  PromptTemplate,
 } from './types';
 
 export interface ToastItem {
@@ -24,6 +25,63 @@ export interface RoleDefinition {
   description: string; // The actual prompt instructions for this role
   outputInstruction: string; // What kind of output to produce
 }
+
+// Default prompt templates (like Postman's default requests in a collection)
+const defaultPromptTemplates: PromptTemplate[] = [
+  {
+    id: 'classify-failure',
+    name: 'Classify Test Failure',
+    description: 'Analyze a test failure and classify its type',
+    template: `Analyze this test failure and classify it:
+
+{{error_message}}
+
+Classify as one of: ASSERTION, TIMEOUT, NULL_POINTER, NETWORK, CONFIGURATION, UNKNOWN
+
+Respond with JSON: { "classification": "TYPE", "confidence": 0.0-1.0, "reasoning": "..." }`,
+    outputExtraction: { mode: 'json', outputName: 'classification' },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'generate-fix',
+    name: 'Generate Fix',
+    description: 'Generate a code fix based on analysis',
+    template: `Based on this analysis:
+
+{{analysis}}
+
+Generate a fix for the failing test. Respond with the corrected code.`,
+    outputExtraction: { mode: 'full', outputName: 'fix' },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'review-code',
+    name: 'Review Code',
+    description: 'Review code for issues and improvements',
+    template: `Review this code:
+
+{{code}}
+
+Provide feedback on:
+1. Bugs or issues
+2. Performance concerns
+3. Code style improvements`,
+    outputExtraction: { mode: 'full', outputName: 'review' },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'custom',
+    name: 'Custom Prompt',
+    description: 'A blank template for custom prompts',
+    template: '{{input}}',
+    outputExtraction: { mode: 'full', outputName: 'output' },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+];
 
 // Default role definitions
 const defaultRoleDefinitions: RoleDefinition[] = [
@@ -66,9 +124,17 @@ const defaultRoleDefinitions: RoleDefinition[] = [
 ];
 
 interface Store {
-  // Agents
+  // Agents (source of truth for agent configurations)
   agents: Agent[];
   setAgents: (agents: Agent[]) => void;
+  getAgentById: (instanceId: string) => Agent | undefined;
+
+  // Prompt Templates Registry (source of truth for prompt configurations)
+  promptTemplates: PromptTemplate[];
+  addPromptTemplate: (template: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'>) => string;
+  updatePromptTemplate: (id: string, updates: Partial<Omit<PromptTemplate, 'id' | 'createdAt'>>) => void;
+  deletePromptTemplate: (id: string) => void;
+  getPromptTemplateById: (id: string) => PromptTemplate | undefined;
 
   // Activity
   activity: ActivityEvent[];
@@ -130,10 +196,36 @@ interface Store {
 }
 
 let toastIdCounter = 0;
+let templateIdCounter = 0;
 
-export const useStore = create<Store>((set) => ({
+export const useStore = create<Store>((set, get) => ({
+  // Agents (source of truth)
   agents: [],
   setAgents: (agents) => set({ agents }),
+  getAgentById: (instanceId) => get().agents.find((a) => a.instance_id === instanceId),
+
+  // Prompt Templates Registry (source of truth)
+  promptTemplates: defaultPromptTemplates,
+  addPromptTemplate: (template) => {
+    const id = `prompt-${++templateIdCounter}-${Date.now()}`;
+    const now = new Date().toISOString();
+    set((state) => ({
+      promptTemplates: [
+        ...state.promptTemplates,
+        { ...template, id, createdAt: now, updatedAt: now },
+      ],
+    }));
+    return id;
+  },
+  updatePromptTemplate: (id, updates) => set((state) => ({
+    promptTemplates: state.promptTemplates.map((t) =>
+      t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t
+    ),
+  })),
+  deletePromptTemplate: (id) => set((state) => ({
+    promptTemplates: state.promptTemplates.filter((t) => t.id !== id),
+  })),
+  getPromptTemplateById: (id) => get().promptTemplates.find((t) => t.id === id),
 
   activity: [],
   addActivity: (event) => set((state) => ({

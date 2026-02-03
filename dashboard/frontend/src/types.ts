@@ -137,3 +137,53 @@ export interface PromptMetrics {
 
 // View Mode
 export type ViewMode = 'workflow' | 'monitoring' | 'agents';
+
+// =====================
+// Prompt Registry (Postman Flows Pattern)
+// =====================
+
+// Output extraction modes
+export type ExtractionMode = 'full' | 'json' | 'jsonpath' | 'regex' | 'first_line';
+
+// A reusable prompt template stored in the registry (like a Postman Request in a Collection)
+export interface PromptTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  // The prompt template with {{variable}} placeholders
+  template: string;
+  // Output extraction configuration
+  outputExtraction: {
+    mode: ExtractionMode;
+    pattern?: string; // For regex or jsonpath
+    outputName: string;
+  };
+  // Metadata
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Variable binding - how a variable gets its value at runtime
+// Note: {{input}} always comes from workflow start - no binding needed
+// Other variables default to auto-resolve from upstream connections
+export interface VariableBinding {
+  variableName: string; // The {{variable}} name
+  source: 'upstream' | 'static'; // upstream = auto from connections, static = hardcoded
+  staticValue?: string; // If static, the fixed value
+}
+
+// Simplified PromptBlock node data - stores REFERENCES, not full objects
+export interface PromptBlockNodeData {
+  label: string;
+  // Reference to agent by instance_id (source of truth is agents array in store)
+  agentId: string | null;
+  // Reference to prompt template by id (source of truth is promptTemplates in store)
+  promptTemplateId: string | null;
+  // Runtime variable bindings (overrides for this specific block instance)
+  variableBindings: VariableBinding[];
+  // Runtime state (not persisted)
+  status: 'idle' | 'waiting' | 'running' | 'success' | 'error';
+  resolvedPrompt?: string; // The prompt after variable substitution
+  response?: string;
+  extractedOutput?: unknown;
+}
