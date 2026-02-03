@@ -10,9 +10,14 @@ import {
   Search,
   Tag,
   FolderOpen,
+  FolderPlus,
   ChevronRight,
+  ChevronDown,
   Copy,
   Check,
+  Pencil,
+  Folder,
+  MoreVertical,
 } from 'lucide-react';
 import clsx from 'clsx';
 import yaml from 'js-yaml';
@@ -48,13 +53,22 @@ export default function PromptsTab() {
   const [isCreating, setIsCreating] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load prompts from backend on mount
+  // Folder state
+  const [folders, setFolders] = useState<{ name: string; promptCount: number }[]>([]);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['__root__']));
+  const [editingFolder, setEditingFolder] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [folderMenuOpen, setFolderMenuOpen] = useState<string | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null); // For creating prompts in folder
+
+  // Load prompts and folders from backend on mount
   useEffect(() => {
     loadFromBackend();
+    loadFolders();
   }, []);
 
   const loadFromBackend = async () => {
@@ -72,6 +86,104 @@ export default function PromptsTab() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const loadFolders = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/prompts/folders/list`);
+      if (response.ok) {
+        const data = await response.json();
+        setFolders(data);
+      }
+    } catch (error) {
+      console.error('Failed to load folders:', error);
+    }
+  };
+
+  const createFolder = async (name: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/prompts/folders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const result = await response.json();
+      if (result.error) {
+        addToast({ type: 'error', title: 'Create failed', message: result.error });
+        return false;
+      }
+      addToast({ type: 'success', title: 'Folder created', message: `Created "${result.name}"` });
+      await loadFolders();
+      setExpandedFolders((prev) => new Set([...prev, result.name]));
+      return true;
+    } catch (error) {
+      addToast({ type: 'error', title: 'Create failed', message: String(error) });
+      return false;
+    }
+  };
+
+  const renameFolder = async (oldName: string, newName: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/prompts/folders/${encodeURIComponent(oldName)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName }),
+      });
+      const result = await response.json();
+      if (result.error) {
+        addToast({ type: 'error', title: 'Rename failed', message: result.error });
+        return false;
+      }
+      addToast({ type: 'success', title: 'Folder renamed', message: `Renamed to "${result.newName}"` });
+      await loadFolders();
+      await loadFromBackend(); // Reload prompts to get updated folder assignments
+      return true;
+    } catch (error) {
+      addToast({ type: 'error', title: 'Rename failed', message: String(error) });
+      return false;
+    }
+  };
+
+  const deleteFolder = async (name: string, force: boolean = false) => {
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/prompts/folders/${encodeURIComponent(name)}?force=${force}`,
+        { method: 'DELETE' }
+      );
+      const result = await response.json();
+      if (result.error) {
+        if (result.promptCount) {
+          const confirmed = confirm(
+            `Folder "${name}" contains ${result.promptCount} prompt(s). Delete anyway?`
+          );
+          if (confirmed) {
+            return deleteFolder(name, true);
+          }
+        } else {
+          addToast({ type: 'error', title: 'Delete failed', message: result.error });
+        }
+        return false;
+      }
+      addToast({ type: 'success', title: 'Folder deleted', message: `Deleted "${name}"` });
+      await loadFolders();
+      await loadFromBackend();
+      return true;
+    } catch (error) {
+      addToast({ type: 'error', title: 'Delete failed', message: String(error) });
+      return false;
+    }
+  };
+
+  const toggleFolder = (folderName: string) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderName)) {
+        next.delete(folderName);
+      } else {
+        next.add(folderName);
+      }
+      return next;
+    });
   };
 
   const saveToBackend = async (template: PromptTemplate): Promise<boolean> => {
@@ -115,7 +227,7 @@ export default function PromptsTab() {
     return Array.from(cats).sort();
   }, [promptTemplates]);
 
-  // Filter prompts by search and category
+  // Filter prompts by search
   const filteredPrompts = useMemo(() => {
     return promptTemplates.filter((p) => {
       const matchesSearch =
@@ -123,38 +235,38 @@ export default function PromptsTab() {
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.template.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory = !selectedCategory || p.category === selectedCategory;
-      return matchesSearch && matchesCategory;
+      return matchesSearch;
     });
-  }, [promptTemplates, searchQuery, selectedCategory]);
+  }, [promptTemplates, searchQuery]);
 
-  // Group prompts by category
-  const groupedPrompts = useMemo(() => {
-    const groups: Record<string, PromptTemplate[]> = { Uncategorized: [] };
+  // Group prompts by folder
+  const groupedByFolder = useMemo(() => {
+    const groups: Record<string, (PromptTemplate & { folder?: string | null })[]> = { __root__: [] };
     filteredPrompts.forEach((p) => {
-      const cat = p.category || 'Uncategorized';
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(p);
+      const folder = (p as PromptTemplate & { folder?: string | null }).folder || '__root__';
+      if (!groups[folder]) groups[folder] = [];
+      groups[folder].push(p as PromptTemplate & { folder?: string | null });
     });
     return groups;
   }, [filteredPrompts]);
 
-  const handleCreate = async (template: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const handleCreate = async (template: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'> & { folder?: string | null }) => {
     const id = addPromptTemplate(template);
     const fullTemplate = useStore.getState().getPromptTemplateById(id);
     if (fullTemplate) {
-      await saveToBackend(fullTemplate);
+      await saveToBackend({ ...fullTemplate, folder: template.folder || selectedFolder } as PromptTemplate & { folder?: string | null });
       setSelectedPrompt(fullTemplate);
     }
     setIsCreating(false);
+    setSelectedFolder(null);
   };
 
-  const handleUpdate = async (template: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const handleUpdate = async (template: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'> & { folder?: string | null }) => {
     if (selectedPrompt) {
       updatePromptTemplate(selectedPrompt.id, template);
       const fullTemplate = useStore.getState().getPromptTemplateById(selectedPrompt.id);
       if (fullTemplate) {
-        await saveToBackend(fullTemplate);
+        await saveToBackend({ ...fullTemplate, folder: template.folder } as PromptTemplate & { folder?: string | null });
         setSelectedPrompt(fullTemplate);
       }
     }
@@ -242,7 +354,7 @@ export default function PromptsTab() {
           const fullTemplate = useStore.getState().getPromptTemplateById(id);
           if (fullTemplate) {
             // Save with the original filename
-            await saveToBackend({ ...fullTemplate, sourceFilename: filenameWithoutExt });
+            await saveToBackend({ ...fullTemplate, sourceFilename: filenameWithoutExt } as PromptTemplate & { sourceFilename: string });
             imported++;
           }
         }
@@ -330,7 +442,7 @@ export default function PromptsTab() {
       />
 
       {/* Left Sidebar - Prompt List */}
-      <div className="w-64 bg-white border-r border-slate-200 flex flex-col">
+      <div className="w-[400px] bg-white border-r border-slate-200 flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-slate-200">
           <div className="flex items-center justify-between mb-3">
@@ -383,44 +495,207 @@ export default function PromptsTab() {
           </div>
         </div>
 
-        {/* Category Filter */}
-        <div className="px-4 py-2 border-b border-slate-200 flex items-center gap-2 overflow-x-auto">
-          <button
-            onClick={() => setSelectedCategory(null)}
-            className={clsx(
-              'px-2 py-1 rounded text-xs font-medium whitespace-nowrap',
-              !selectedCategory ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            )}
-          >
-            All ({promptTemplates.length})
-          </button>
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat === selectedCategory ? null : cat)}
-              className={clsx(
-                'px-2 py-1 rounded text-xs font-medium whitespace-nowrap',
-                selectedCategory === cat
-                  ? 'bg-indigo-100 text-indigo-700'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              )}
-            >
-              {cat} ({promptTemplates.filter((p) => p.category === cat).length})
-            </button>
-          ))}
+        {/* Folder Actions */}
+        <div className="px-4 py-2 border-b border-slate-200 flex items-center gap-2">
+          {isCreatingFolder ? (
+            <div className="flex-1 flex items-center gap-2">
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newFolderName.trim()) {
+                    createFolder(newFolderName.trim());
+                    setNewFolderName('');
+                    setIsCreatingFolder(false);
+                  } else if (e.key === 'Escape') {
+                    setNewFolderName('');
+                    setIsCreatingFolder(false);
+                  }
+                }}
+                placeholder="Folder name..."
+                autoFocus
+                className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              <button
+                onClick={() => {
+                  if (newFolderName.trim()) {
+                    createFolder(newFolderName.trim());
+                    setNewFolderName('');
+                    setIsCreatingFolder(false);
+                  }
+                }}
+                className="px-2 py-1 bg-indigo-500 text-white rounded text-sm hover:bg-indigo-600"
+              >
+                Create
+              </button>
+              <button
+                onClick={() => {
+                  setNewFolderName('');
+                  setIsCreatingFolder(false);
+                }}
+                className="px-2 py-1 text-slate-500 hover:text-slate-700 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={() => setIsCreatingFolder(true)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+                New Folder
+              </button>
+              <span className="text-xs text-slate-400">
+                {folders.length} folder{folders.length !== 1 ? 's' : ''}, {promptTemplates.length} prompt{promptTemplates.length !== 1 ? 's' : ''}
+              </span>
+            </>
+          )}
         </div>
 
-        {/* Prompt List */}
+        {/* Prompt List with Folders */}
         <div className="flex-1 overflow-y-auto">
-          {Object.entries(groupedPrompts).map(([category, prompts]) =>
-            prompts.length > 0 ? (
-              <div key={category}>
-                <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
-                  <FolderOpen className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">{category}</span>
-                  <span className="text-xs text-slate-400">({prompts.length})</span>
+          {/* Root level prompts */}
+          <div>
+            <button
+              onClick={() => toggleFolder('__root__')}
+              className="w-full px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-100"
+            >
+              {expandedFolders.has('__root__') ? (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <FolderOpen className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-xs font-medium text-slate-600">Root</span>
+              <span className="text-xs text-slate-400">({groupedByFolder['__root__']?.length || 0})</span>
+            </button>
+            {expandedFolders.has('__root__') &&
+              groupedByFolder['__root__']?.map((prompt) => (
+                <button
+                  key={prompt.id}
+                  onClick={() => {
+                    setSelectedPrompt(prompt);
+                    setIsCreating(false);
+                  }}
+                  className={clsx(
+                    'w-full pl-10 pr-4 py-2.5 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors',
+                    selectedPrompt?.id === prompt.id && 'bg-indigo-50 border-l-2 border-l-indigo-500'
+                  )}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-sm text-slate-800 truncate">{prompt.name}</div>
+                      {prompt.description && (
+                        <div className="text-xs text-slate-500 truncate mt-0.5">{prompt.description}</div>
+                      )}
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0 mt-0.5" />
+                  </div>
+                </button>
+              ))}
+          </div>
+
+          {/* Folders */}
+          {folders.map((folder) => (
+            <div key={folder.name}>
+              <div className="w-full px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-100 group">
+                <button
+                  onClick={() => toggleFolder(folder.name)}
+                  className="flex items-center gap-2 flex-1 text-left"
+                >
+                  {expandedFolders.has(folder.name) ? (
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                  <Folder className="w-3.5 h-3.5 text-indigo-500" />
+                  {editingFolder === folder.name ? (
+                    <input
+                      type="text"
+                      defaultValue={folder.name}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const newName = (e.target as HTMLInputElement).value.trim();
+                          if (newName && newName !== folder.name) {
+                            renameFolder(folder.name, newName);
+                          }
+                          setEditingFolder(null);
+                        } else if (e.key === 'Escape') {
+                          setEditingFolder(null);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const newName = e.target.value.trim();
+                        if (newName && newName !== folder.name) {
+                          renameFolder(folder.name, newName);
+                        }
+                        setEditingFolder(null);
+                      }}
+                      className="px-1 py-0.5 border border-indigo-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    />
+                  ) : (
+                    <span className="text-xs font-medium text-slate-600">{folder.name}</span>
+                  )}
+                  <span className="text-xs text-slate-400">({groupedByFolder[folder.name]?.length || 0})</span>
+                </button>
+                <div className="relative">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFolderMenuOpen(folderMenuOpen === folder.name ? null : folder.name);
+                    }}
+                    className="p-1 rounded hover:bg-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <MoreVertical className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                  {folderMenuOpen === folder.name && (
+                    <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 py-1 min-w-[140px]">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedFolder(folder.name);
+                          setIsCreating(true);
+                          setSelectedPrompt(null);
+                          setFolderMenuOpen(null);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        New Prompt
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingFolder(folder.name);
+                          setFolderMenuOpen(null);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Rename
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteFolder(folder.name);
+                          setFolderMenuOpen(null);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
-                {prompts.map((prompt) => (
+              </div>
+              {expandedFolders.has(folder.name) &&
+                groupedByFolder[folder.name]?.map((prompt) => (
                   <button
                     key={prompt.id}
                     onClick={() => {
@@ -428,7 +703,7 @@ export default function PromptsTab() {
                       setIsCreating(false);
                     }}
                     className={clsx(
-                      'w-full px-4 py-3 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors',
+                      'w-full pl-10 pr-4 py-2.5 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors',
                       selectedPrompt?.id === prompt.id && 'bg-indigo-50 border-l-2 border-l-indigo-500'
                     )}
                   >
@@ -443,9 +718,8 @@ export default function PromptsTab() {
                     </div>
                   </button>
                 ))}
-              </div>
-            ) : null
-          )}
+            </div>
+          ))}
 
           {filteredPrompts.length === 0 && (
             <div className="p-8 text-center text-slate-400">
@@ -468,11 +742,13 @@ export default function PromptsTab() {
           <PromptEditor
             onSave={handleCreate}
             categories={categories}
+            folders={folders}
+            initialFolder={selectedFolder}
           />
         ) : selectedPrompt ? (
           <PromptEditor
             key={selectedPrompt.id}
-            template={selectedPrompt}
+            template={selectedPrompt as PromptTemplate & { folder?: string | null }}
             onSave={handleUpdate}
             onDelete={() => handleDelete(selectedPrompt.id)}
             onDuplicate={() => handleDuplicate(selectedPrompt)}
@@ -480,6 +756,7 @@ export default function PromptsTab() {
             onCopy={(text) => copyToClipboard(text, selectedPrompt.id)}
             copied={copiedId === selectedPrompt.id}
             categories={categories}
+            folders={folders}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-slate-400">
@@ -504,14 +781,16 @@ export default function PromptsTab() {
 
 // Prompt Editor Component
 interface PromptEditorProps {
-  template?: PromptTemplate;
-  onSave: (template: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  template?: PromptTemplate & { folder?: string | null };
+  onSave: (template: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'> & { folder?: string | null }) => void;
   onDelete?: () => void;
   onDuplicate?: () => void;
   onExport?: () => void;
   onCopy?: (text: string) => void;
   copied?: boolean;
   categories: string[];
+  folders?: { name: string; promptCount: number }[];
+  initialFolder?: string | null;
 }
 
 function PromptEditor({
@@ -523,10 +802,13 @@ function PromptEditor({
   onCopy,
   copied,
   categories,
+  folders = [],
+  initialFolder,
 }: PromptEditorProps) {
   const [name, setName] = useState(template?.name || '');
   const [description, setDescription] = useState(template?.description || '');
   const [category, setCategory] = useState(template?.category || '');
+  const [folder, setFolder] = useState<string | null>(template?.folder ?? initialFolder ?? null);
   const [tags, setTags] = useState<string[]>(template?.tags || []);
   const [tagInput, setTagInput] = useState('');
   const [priority, setPriority] = useState<PromptPriority | ''>(template?.priority || '');
@@ -555,6 +837,7 @@ function PromptEditor({
       name: name.trim(),
       description: description.trim() || undefined,
       category: category.trim() || undefined,
+      folder,
       tags: tags.length > 0 ? tags : undefined,
       priority: priority || undefined,
       version: version.trim() || undefined,
@@ -685,15 +968,35 @@ function PromptEditor({
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-          <input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Brief description of what this prompt does"
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-          />
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Brief description of what this prompt does"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Folder</label>
+            <div className="relative">
+              <Folder className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <select
+                value={folder || ''}
+                onChange={(e) => setFolder(e.target.value || null)}
+                className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 appearance-none bg-white"
+              >
+                <option value="">Root (no folder)</option>
+                {folders.map((f) => (
+                  <option key={f.name} value={f.name}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Tags, Priority, Version */}
@@ -780,8 +1083,8 @@ function PromptEditor({
             value={promptTemplate}
             onChange={(e) => setPromptTemplate(e.target.value)}
             placeholder="Enter your prompt template..."
-            rows={12}
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+            rows={20}
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"
           />
         </div>
 

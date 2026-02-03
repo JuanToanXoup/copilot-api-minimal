@@ -114,10 +114,11 @@ def _format_markdown_prompt(prompt: dict[str, Any]) -> str:
 
 @router.get("")
 async def list_prompts() -> list[dict[str, Any]]:
-    """List all saved prompt templates."""
+    """List all saved prompt templates, including those in subfolders."""
     _ensure_prompts_dir()
     prompts = []
 
+    # Get prompts from root directory
     for file in PROMPTS_DIR.glob("*.md"):
         try:
             content = file.read_text()
@@ -126,9 +127,25 @@ async def list_prompts() -> list[dict[str, Any]]:
                 # Use filename as fallback ID
                 if not prompt.get('id'):
                     prompt['id'] = file.stem
+                prompt['folder'] = None  # Root level
                 prompts.append(prompt)
         except Exception:
             continue
+
+    # Get prompts from subfolders
+    for folder in PROMPTS_DIR.iterdir():
+        if folder.is_dir() and not folder.name.startswith('.'):
+            for file in folder.glob("*.md"):
+                try:
+                    content = file.read_text()
+                    prompt = _parse_markdown_prompt(content)
+                    if prompt:
+                        if not prompt.get('id'):
+                            prompt['id'] = file.stem
+                        prompt['folder'] = folder.name
+                        prompts.append(prompt)
+                except Exception:
+                    continue
 
     return sorted(prompts, key=lambda x: x.get('updatedAt', '') or '', reverse=True)
 
@@ -175,6 +192,14 @@ async def save_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
     prompt_id = prompt.get('id') or _sanitize_filename(name)
     prompt['id'] = prompt_id
 
+    # Determine target folder
+    folder = prompt.pop('folder', None)
+    if folder:
+        target_dir = PROMPTS_DIR / folder
+        target_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        target_dir = PROMPTS_DIR
+
     # Use sourceFilename if provided (for imports), otherwise sanitize name
     source_filename = prompt.pop('sourceFilename', None)
     if source_filename:
@@ -182,7 +207,7 @@ async def save_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
         safe_name = source_filename
     else:
         safe_name = _sanitize_filename(name)
-    file_path = PROMPTS_DIR / f"{safe_name}.md"
+    file_path = target_dir / f"{safe_name}.md"
 
     # Add/update timestamps
     now = datetime.now().isoformat()
@@ -200,18 +225,21 @@ async def save_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
     try:
         content = _format_markdown_prompt(prompt)
         file_path.write_text(content)
-        return {"status": "saved", "id": prompt_id, "path": str(file_path)}
+        return {"status": "saved", "id": prompt_id, "path": str(file_path), "folder": folder}
     except Exception as e:
         return {"error": str(e)}
 
 
 @router.delete("/{prompt_id}")
-async def delete_prompt(prompt_id: str) -> dict[str, Any]:
+async def delete_prompt(prompt_id: str, folder: str | None = None) -> dict[str, Any]:
     """Delete a prompt template."""
     _ensure_prompts_dir()
 
+    # Determine the base directory
+    base_dir = PROMPTS_DIR / folder if folder else PROMPTS_DIR
+
     # Try exact filename match first
-    file_path = PROMPTS_DIR / f"{prompt_id}.md"
+    file_path = base_dir / f"{prompt_id}.md"
     if file_path.exists():
         try:
             file_path.unlink()
@@ -219,8 +247,8 @@ async def delete_prompt(prompt_id: str) -> dict[str, Any]:
         except Exception as e:
             return {"error": str(e)}
 
-    # Search by ID in frontmatter
-    for file in PROMPTS_DIR.glob("*.md"):
+    # Search by ID in frontmatter (in the specified folder or root)
+    for file in base_dir.glob("*.md"):
         try:
             content = file.read_text()
             prompt = _parse_markdown_prompt(content)
@@ -230,4 +258,167 @@ async def delete_prompt(prompt_id: str) -> dict[str, Any]:
         except Exception:
             continue
 
+    # If no folder specified, also search subfolders
+    if not folder:
+        for subfolder in PROMPTS_DIR.iterdir():
+            if subfolder.is_dir() and not subfolder.name.startswith('.'):
+                for file in subfolder.glob("*.md"):
+                    try:
+                        content = file.read_text()
+                        prompt = _parse_markdown_prompt(content)
+                        if prompt and prompt.get('id') == prompt_id:
+                            file.unlink()
+                            return {"status": "deleted", "id": prompt_id}
+                    except Exception:
+                        continue
+
     return {"error": "Prompt not found"}
+
+
+# ============== Folder Management ==============
+
+@router.get("/folders/list")
+async def list_folders() -> list[dict[str, Any]]:
+    """List all prompt folders."""
+    _ensure_prompts_dir()
+    folders = []
+
+    for item in PROMPTS_DIR.iterdir():
+        if item.is_dir() and not item.name.startswith('.'):
+            # Count prompts in folder
+            prompt_count = len(list(item.glob("*.md")))
+            folders.append({
+                "name": item.name,
+                "path": str(item),
+                "promptCount": prompt_count,
+            })
+
+    return sorted(folders, key=lambda x: x['name'].lower())
+
+
+@router.post("/folders")
+async def create_folder(data: dict[str, Any]) -> dict[str, Any]:
+    """Create a new prompt folder."""
+    _ensure_prompts_dir()
+
+    name = data.get('name', '').strip()
+    if not name:
+        return {"error": "Folder name is required"}
+
+    # Sanitize folder name
+    safe_name = _sanitize_filename(name)
+    if not safe_name:
+        return {"error": "Invalid folder name"}
+
+    folder_path = PROMPTS_DIR / safe_name
+    if folder_path.exists():
+        return {"error": "Folder already exists"}
+
+    try:
+        folder_path.mkdir(parents=True, exist_ok=True)
+        return {"status": "created", "name": safe_name, "path": str(folder_path)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.put("/folders/{folder_name}")
+async def rename_folder(folder_name: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Rename a prompt folder."""
+    _ensure_prompts_dir()
+
+    new_name = data.get('name', '').strip()
+    if not new_name:
+        return {"error": "New folder name is required"}
+
+    old_path = PROMPTS_DIR / folder_name
+    if not old_path.exists() or not old_path.is_dir():
+        return {"error": "Folder not found"}
+
+    # Sanitize new folder name
+    safe_name = _sanitize_filename(new_name)
+    if not safe_name:
+        return {"error": "Invalid folder name"}
+
+    new_path = PROMPTS_DIR / safe_name
+    if new_path.exists() and new_path != old_path:
+        return {"error": "A folder with that name already exists"}
+
+    try:
+        old_path.rename(new_path)
+        return {"status": "renamed", "oldName": folder_name, "newName": safe_name, "path": str(new_path)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.delete("/folders/{folder_name}")
+async def delete_folder(folder_name: str, force: bool = False) -> dict[str, Any]:
+    """Delete a prompt folder. If force=True, deletes folder with contents."""
+    _ensure_prompts_dir()
+
+    folder_path = PROMPTS_DIR / folder_name
+    if not folder_path.exists() or not folder_path.is_dir():
+        return {"error": "Folder not found"}
+
+    # Check if folder has contents
+    contents = list(folder_path.glob("*"))
+    if contents and not force:
+        return {"error": "Folder is not empty. Use force=true to delete with contents.", "promptCount": len(contents)}
+
+    try:
+        if contents:
+            # Delete all contents first
+            for item in contents:
+                if item.is_file():
+                    item.unlink()
+        folder_path.rmdir()
+        return {"status": "deleted", "name": folder_name}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/move")
+async def move_prompt(data: dict[str, Any]) -> dict[str, Any]:
+    """Move a prompt to a different folder."""
+    _ensure_prompts_dir()
+
+    prompt_id = data.get('promptId')
+    source_folder = data.get('sourceFolder')  # None for root
+    target_folder = data.get('targetFolder')  # None for root
+
+    if not prompt_id:
+        return {"error": "Prompt ID is required"}
+
+    # Determine source directory
+    source_dir = PROMPTS_DIR / source_folder if source_folder else PROMPTS_DIR
+
+    # Find the prompt file
+    source_file = None
+    for file in source_dir.glob("*.md"):
+        content = file.read_text()
+        prompt = _parse_markdown_prompt(content)
+        if prompt and (prompt.get('id') == prompt_id or file.stem == prompt_id):
+            source_file = file
+            break
+
+    if not source_file:
+        return {"error": "Prompt not found"}
+
+    # Determine target directory
+    if target_folder:
+        target_dir = PROMPTS_DIR / target_folder
+        if not target_dir.exists():
+            target_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        target_dir = PROMPTS_DIR
+
+    target_file = target_dir / source_file.name
+
+    # Check if target already exists
+    if target_file.exists() and target_file != source_file:
+        return {"error": "A prompt with that filename already exists in the target folder"}
+
+    try:
+        source_file.rename(target_file)
+        return {"status": "moved", "promptId": prompt_id, "targetFolder": target_folder}
+    except Exception as e:
+        return {"error": str(e)}
