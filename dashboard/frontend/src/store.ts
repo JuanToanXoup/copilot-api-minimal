@@ -100,6 +100,7 @@ interface Store {
 
   // Prompt Templates Registry (source of truth for prompt configurations)
   promptTemplates: PromptTemplate[];
+  setPromptTemplates: (templates: PromptTemplate[]) => void;
   addPromptTemplate: (template: Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'>) => string;
   updatePromptTemplate: (id: string, updates: Partial<Omit<PromptTemplate, 'id' | 'createdAt'>>) => void;
   deletePromptTemplate: (id: string) => void;
@@ -177,6 +178,7 @@ export const useStore = create<Store>((set, get) => ({
 
   // Prompt Templates Registry (source of truth)
   promptTemplates: defaultPromptTemplates,
+  setPromptTemplates: (templates) => set({ promptTemplates: templates }),
   addPromptTemplate: (template) => {
     const id = `prompt-${++templateIdCounter}-${Date.now()}`;
     const now = new Date().toISOString();

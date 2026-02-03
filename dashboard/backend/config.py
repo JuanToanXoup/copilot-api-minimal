@@ -5,6 +5,7 @@ from pathlib import Path
 # Paths
 REGISTRY_PATH = Path.home() / ".citi-agent" / "registry.json"
 FLOWS_DIR = Path.home() / ".citi-agent" / "flows"
+PROMPTS_DIR = Path.home() / ".citi-agent" / "prompts"
 
 # Timeouts (seconds)
 WS_CONNECT_TIMEOUT = 5
