@@ -8,7 +8,7 @@ interface LayoutOptions {
 }
 
 const defaultOptions: LayoutOptions = {
-  horizontalSpacing: 300,
+  horizontalSpacing: 480,
   verticalSpacing: 150,
   startX: 50,
   startY: 50,
@@ -38,12 +38,13 @@ function assignLevels(nodes: Node[], edges: Edge[]): Map<string, number> {
     outgoingEdges.set(edge.source, outgoing);
   }
 
-  // Find root nodes (no incoming edges, or special types like 'prompt', 'supervisor')
+  // Find root nodes (no incoming edges, or special types like 'prompt', 'supervisor', 'workflowStart')
   const rootNodes = nodes.filter(node => {
     const incoming = incomingEdges.get(node.id) || [];
     return incoming.length === 0 ||
            node.type === 'prompt' ||
-           node.type === 'supervisor';
+           node.type === 'supervisor' ||
+           node.type === 'workflowStart';
   });
 
   // BFS to assign levels
@@ -102,6 +103,10 @@ function groupByLevel(nodes: Node[], levels: Map<string, number>): Map<number, N
  */
 function getNodeHeight(node: Node): number {
   switch (node.type) {
+    case 'workflowStart':
+      return 280;
+    case 'promptBlock':
+      return 500;
     case 'prompt':
     case 'supervisor':
       return 200;
@@ -145,13 +150,15 @@ export function getHierarchicalLayout(
 
     // Sort nodes at each level by type priority for consistent ordering
     const typePriority: Record<string, number> = {
-      prompt: 0,
-      supervisor: 1,
-      router: 2,
-      agent: 3,
-      aggregator: 4,
-      evaluator: 5,
-      output: 6,
+      workflowStart: 0,
+      promptBlock: 1,
+      prompt: 2,
+      supervisor: 3,
+      router: 4,
+      agent: 5,
+      aggregator: 6,
+      evaluator: 7,
+      output: 8,
     };
 
     nodesAtLevel.sort((a, b) => {
