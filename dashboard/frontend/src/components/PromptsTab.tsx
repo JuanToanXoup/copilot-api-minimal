@@ -1174,22 +1174,22 @@ function PromptEditor({
         </div>
 
         {/* Template Editor - Full Height with Line Numbers */}
-        <div className="flex-1 flex flex-col p-6 bg-slate-50">
+        <div className="flex-1 flex flex-col p-6 bg-slate-50 min-h-0">
           <div className="flex items-center justify-between mb-2">
             <label className="block text-sm font-medium text-slate-700">Prompt Template</label>
             <p className="text-xs text-slate-500">Use {'{{variable}}'} syntax for dynamic values</p>
           </div>
-          <div className="flex-1 flex border border-slate-200 rounded-lg overflow-hidden bg-white focus-within:ring-2 focus-within:ring-indigo-400">
+          <div className="flex-1 flex border border-slate-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-indigo-400 min-h-0 overflow-hidden">
             {/* Line numbers gutter */}
             <div
               ref={lineNumbersRef}
-              className="flex-shrink-0 bg-slate-50 border-r border-slate-200 py-4 overflow-hidden select-none"
+              className="flex-shrink-0 bg-slate-50 border-r border-slate-200 pt-4 pb-4 overflow-y-hidden select-none"
               style={{ width: '50px' }}
             >
               {lineNumbers.map((num) => (
                 <div
                   key={num}
-                  className="text-right pr-3 text-xs font-mono text-slate-400 leading-[21px]"
+                  className="text-right pr-3 text-xs font-mono text-slate-400 leading-[21px] h-[21px]"
                 >
                   {num}
                 </div>
@@ -1202,8 +1202,9 @@ function PromptEditor({
               onChange={(e) => setPromptTemplate(e.target.value)}
               onScroll={handleScroll}
               placeholder="Enter your prompt template..."
-              className="flex-1 px-4 py-4 text-sm font-mono focus:outline-none resize-none leading-[21px]"
+              className="flex-1 px-4 py-4 text-sm font-mono focus:outline-none resize-none leading-[21px] overflow-auto whitespace-pre"
               spellCheck={false}
+              wrap="off"
             />
           </div>
         </div>
