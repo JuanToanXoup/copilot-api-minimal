@@ -13,8 +13,9 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import clsx from 'clsx';
+import yaml from 'js-yaml';
 import { useStore } from '../store';
-import type { PromptTemplate, ExtractionMode } from '../types';
+import type { PromptTemplate, ExtractionMode, PromptPriority } from '../types';
 
 const API_BASE = 'http://localhost:8080';
 
@@ -341,58 +342,51 @@ export default function PromptTemplateManager() {
     }
   };
 
-  // Parse markdown with YAML frontmatter
+  // Parse markdown with YAML frontmatter using js-yaml
   const parseMarkdownPrompt = (content: string): Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'> | null => {
     const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
     if (!match) return null;
 
-    const frontmatterLines = match[1].split('\n');
-    const template = match[2].trim();
+    try {
+      const frontmatter = yaml.load(match[1]) as Record<string, unknown>;
+      const template = match[2].trim();
 
-    const frontmatter: Record<string, string> = {};
-    const outputExtraction: Record<string, string> = {};
-    let inOutputExtraction = false;
+      if (!frontmatter || typeof frontmatter !== 'object') return null;
 
-    for (const line of frontmatterLines) {
-      if (line.startsWith('outputExtraction:')) {
-        inOutputExtraction = true;
-        continue;
+      // Extract name - required field (fallback to description for spec-kit compatibility)
+      const name = frontmatter.name as string || frontmatter.description as string;
+      if (!name) return null;
+
+      // Extract tags - can be array or string
+      let tags: string[] | undefined;
+      if (Array.isArray(frontmatter.tags)) {
+        tags = frontmatter.tags.map(String);
+      } else if (typeof frontmatter.tags === 'string') {
+        tags = frontmatter.tags.split(',').map((t) => t.trim()).filter(Boolean);
       }
-      if (inOutputExtraction && line.startsWith('  ')) {
-        const [key, ...valueParts] = line.trim().split(':');
-        outputExtraction[key.trim()] = valueParts.join(':').trim();
-      } else if (line.includes(':')) {
-        inOutputExtraction = false;
-        const [key, ...valueParts] = line.split(':');
-        frontmatter[key.trim()] = valueParts.join(':').trim();
-      }
+
+      // Extract outputExtraction - can be object or undefined
+      const rawExtraction = frontmatter.outputExtraction as Record<string, unknown> | undefined;
+      const outputExtraction = {
+        mode: (rawExtraction?.mode as ExtractionMode) || 'full',
+        outputName: (rawExtraction?.outputName as string) || 'output',
+        pattern: rawExtraction?.pattern as string | undefined,
+      };
+
+      return {
+        name: name as string,
+        description: (frontmatter.description as string) || undefined,
+        category: (frontmatter.category as string) || undefined,
+        tags,
+        priority: (frontmatter.priority as PromptPriority) || undefined,
+        version: (frontmatter.version as string) || undefined,
+        template,
+        outputExtraction,
+      };
+    } catch (e) {
+      console.error('Failed to parse YAML frontmatter:', e);
+      return null;
     }
-
-    if (!frontmatter.name) return null;
-
-    // Parse tags from [tag1, tag2] format
-    let tags: string[] | undefined;
-    if (frontmatter.tags) {
-      const tagsMatch = frontmatter.tags.match(/\[(.*)\]/);
-      if (tagsMatch) {
-        tags = tagsMatch[1].split(',').map((t) => t.trim()).filter(Boolean);
-      }
-    }
-
-    return {
-      name: frontmatter.name,
-      description: frontmatter.description,
-      category: frontmatter.category,
-      tags,
-      priority: frontmatter.priority as 'P1' | 'P2' | 'P3' | undefined,
-      version: frontmatter.version,
-      template,
-      outputExtraction: {
-        mode: (outputExtraction.mode as ExtractionMode) || 'full',
-        outputName: outputExtraction.outputName || 'output',
-        pattern: outputExtraction.pattern,
-      },
-    };
   };
 
   return (
