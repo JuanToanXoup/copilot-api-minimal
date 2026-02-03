@@ -54,6 +54,13 @@ class BroadcastService:
             "changes": changes,
         })
 
+    async def broadcast_agent_added(self, agent: dict) -> None:
+        """Notify that a new agent was added with full data."""
+        await self.broadcast({
+            "type": "agent_added",
+            "agent": agent,
+        })
+
     async def broadcast_agent_removed(self, instance_id: str) -> None:
         """Notify that an agent was removed."""
         await self.broadcast({

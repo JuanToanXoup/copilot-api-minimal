@@ -37,6 +37,7 @@ class RegistryService:
         self.agent_manager = agent_manager
         self.broadcast = broadcast
         self._known_instances: set[str] = set()
+        self._known_entries: dict[str, dict] = {}  # Track entry data for change detection
         self._change_event = asyncio.Event()
         self._observer: Optional[Observer] = None
 
@@ -50,21 +51,44 @@ class RegistryService:
             for instance_id in current - self._known_instances:
                 entry = registry[instance_id]
                 await self.agent_manager.connect_agent(instance_id, entry)
+                self._known_entries[instance_id] = dict(entry)
 
             # Removed agents
             for instance_id in self._known_instances - current:
                 await self.agent_manager.disconnect_agent(instance_id)
                 await self.broadcast.broadcast_agent_removed(instance_id)
+                self._known_entries.pop(instance_id, None)
 
             # Update existing agents' registry data
             for instance_id in current & self._known_instances:
                 conn = self.agent_manager.get_connection(instance_id)
+                new_entry = registry[instance_id]
+                old_entry = self._known_entries.get(instance_id, {})
+
                 if conn:
-                    conn.entry = registry[instance_id]
+                    conn.entry = new_entry
+
+                    # Check for changes and broadcast delta
+                    changes = {}
+                    if new_entry.get("role") != old_entry.get("role"):
+                        changes["role"] = new_entry.get("role")
+                    if new_entry.get("projectPath") != old_entry.get("projectPath"):
+                        project_path = new_entry.get("projectPath", "")
+                        changes["project_path"] = project_path
+                        changes["project_name"] = project_path.split("/")[-1] if project_path else "Unknown"
+                    if new_entry.get("capabilities") != old_entry.get("capabilities"):
+                        changes["capabilities"] = new_entry.get("capabilities", [])
+                    if new_entry.get("agentName") != old_entry.get("agentName"):
+                        changes["agent_name"] = new_entry.get("agentName")
+
+                    if changes:
+                        await self.broadcast.broadcast_agent_delta(instance_id, changes)
 
                     # Try reconnecting if disconnected
                     if not self.agent_manager.agents.get(instance_id, {}).get("connected"):
-                        await self.agent_manager.connect_agent(instance_id, registry[instance_id])
+                        await self.agent_manager.connect_agent(instance_id, new_entry)
+
+                self._known_entries[instance_id] = dict(new_entry)
 
             self._known_instances = current
 
