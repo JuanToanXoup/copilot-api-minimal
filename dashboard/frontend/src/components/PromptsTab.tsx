@@ -65,6 +65,10 @@ export default function PromptsTab() {
   const [folderMenuOpen, setFolderMenuOpen] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null); // For creating prompts in folder
 
+  // Drag and drop state
+  const [draggedPrompt, setDraggedPrompt] = useState<{ id: string; folder: string | null } | null>(null);
+  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+
   // Load prompts and folders from backend on mount
   useEffect(() => {
     loadFromBackend();
@@ -184,6 +188,65 @@ export default function PromptsTab() {
       }
       return next;
     });
+  };
+
+  const movePromptToFolder = async (promptId: string, sourceFolder: string | null, targetFolder: string | null) => {
+    if (sourceFolder === targetFolder) return false;
+    try {
+      const response = await fetch(`${API_BASE}/api/prompts/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promptId, sourceFolder, targetFolder }),
+      });
+      const result = await response.json();
+      if (result.error) {
+        addToast({ type: 'error', title: 'Move failed', message: result.error });
+        return false;
+      }
+      addToast({
+        type: 'success',
+        title: 'Prompt moved',
+        message: targetFolder ? `Moved to "${targetFolder}"` : 'Moved to root',
+      });
+      await loadFromBackend();
+      await loadFolders();
+      return true;
+    } catch (error) {
+      addToast({ type: 'error', title: 'Move failed', message: String(error) });
+      return false;
+    }
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, promptId: string, folder: string | null) => {
+    setDraggedPrompt({ id: promptId, folder });
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragEnd = () => {
+    setDraggedPrompt(null);
+    setDragOverFolder(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, folder: string | null) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const targetFolder = folder === '__root__' ? null : folder;
+    setDragOverFolder(folder);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverFolder(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetFolder: string | null) => {
+    e.preventDefault();
+    if (draggedPrompt) {
+      const actualTarget = targetFolder === '__root__' ? null : targetFolder;
+      await movePromptToFolder(draggedPrompt.id, draggedPrompt.folder, actualTarget);
+    }
+    setDraggedPrompt(null);
+    setDragOverFolder(null);
   };
 
   const saveToBackend = async (template: PromptTemplate): Promise<boolean> => {
@@ -558,10 +621,17 @@ export default function PromptsTab() {
         {/* Prompt List with Folders */}
         <div className="flex-1 overflow-y-auto">
           {/* Root level prompts */}
-          <div>
+          <div
+            onDragOver={(e) => handleDragOver(e, '__root__')}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, null)}
+          >
             <button
               onClick={() => toggleFolder('__root__')}
-              className="w-full px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-100"
+              className={clsx(
+                'w-full px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-100 transition-colors',
+                dragOverFolder === '__root__' && 'bg-indigo-100 border-indigo-300'
+              )}
             >
               {expandedFolders.has('__root__') ? (
                 <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
@@ -574,34 +644,48 @@ export default function PromptsTab() {
             </button>
             {expandedFolders.has('__root__') &&
               groupedByFolder['__root__']?.map((prompt) => (
-                <button
+                <div
                   key={prompt.id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, prompt.id, null)}
+                  onDragEnd={handleDragEnd}
                   onClick={() => {
                     setSelectedPrompt(prompt);
                     setIsCreating(false);
                   }}
                   className={clsx(
-                    'w-full pl-10 pr-4 py-2.5 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors',
-                    selectedPrompt?.id === prompt.id && 'bg-indigo-50 border-l-2 border-l-indigo-500'
+                    'w-full pl-12 pr-4 py-2.5 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-grab active:cursor-grabbing',
+                    selectedPrompt?.id === prompt.id && 'bg-indigo-50 border-l-2 border-l-indigo-500',
+                    draggedPrompt?.id === prompt.id && 'opacity-50'
                   )}
                 >
-                  <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-2">
+                    <FileText className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
                     <div className="min-w-0 flex-1">
                       <div className="font-medium text-sm text-slate-800 truncate">{prompt.name}</div>
                       {prompt.description && (
                         <div className="text-xs text-slate-500 truncate mt-0.5">{prompt.description}</div>
                       )}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0 mt-0.5" />
                   </div>
-                </button>
+                </div>
               ))}
           </div>
 
           {/* Folders */}
           {folders.map((folder) => (
-            <div key={folder.name}>
-              <div className="w-full px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-100 group">
+            <div
+              key={folder.name}
+              onDragOver={(e) => handleDragOver(e, folder.name)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, folder.name)}
+            >
+              <div
+                className={clsx(
+                  'w-full pl-4 pr-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-100 group transition-colors',
+                  dragOverFolder === folder.name && 'bg-indigo-100 border-indigo-300'
+                )}
+              >
                 <button
                   onClick={() => toggleFolder(folder.name)}
                   className="flex items-center gap-2 flex-1 text-left"
@@ -696,27 +780,31 @@ export default function PromptsTab() {
               </div>
               {expandedFolders.has(folder.name) &&
                 groupedByFolder[folder.name]?.map((prompt) => (
-                  <button
+                  <div
                     key={prompt.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, prompt.id, folder.name)}
+                    onDragEnd={handleDragEnd}
                     onClick={() => {
                       setSelectedPrompt(prompt);
                       setIsCreating(false);
                     }}
                     className={clsx(
-                      'w-full pl-10 pr-4 py-2.5 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors',
-                      selectedPrompt?.id === prompt.id && 'bg-indigo-50 border-l-2 border-l-indigo-500'
+                      'w-full pl-12 pr-4 py-2.5 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-grab active:cursor-grabbing',
+                      selectedPrompt?.id === prompt.id && 'bg-indigo-50 border-l-2 border-l-indigo-500',
+                      draggedPrompt?.id === prompt.id && 'opacity-50'
                     )}
                   >
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-2">
+                      <FileText className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-sm text-slate-800 truncate">{prompt.name}</div>
                         {prompt.description && (
                           <div className="text-xs text-slate-500 truncate mt-0.5">{prompt.description}</div>
                         )}
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0 mt-0.5" />
                     </div>
-                  </button>
+                  </div>
                 ))}
             </div>
           ))}
@@ -737,7 +825,7 @@ export default function PromptsTab() {
       </div>
 
       {/* Right Panel - Editor */}
-      <div className="flex-1 flex flex-col min-w-[800px]">
+      <div className="flex-1 flex flex-col min-w-0">
         {isCreating ? (
           <PromptEditor
             onSave={handleCreate}
@@ -857,9 +945,9 @@ function PromptEditor({
   }, [promptTemplate]);
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col h-full w-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white">
+      <div className="flex items-center justify-between px-8 py-5 border-b border-slate-200 bg-white">
         <div className="flex items-center gap-3">
           <FileText className="w-5 h-5 text-indigo-500" />
           <h2 className="font-semibold text-slate-800">{template ? 'Edit Prompt' : 'New Prompt'}</h2>
@@ -922,9 +1010,9 @@ function PromptEditor({
       </div>
 
       {/* Editor Content */}
-      <div className="flex-1 overflow-y-auto p-8 space-y-6">
+      <div className="flex-1 overflow-y-auto p-10 space-y-8 bg-white">
         {/* Basic Info */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-8">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
             <input
@@ -968,7 +1056,7 @@ function PromptEditor({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-8">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
             <input
@@ -1000,7 +1088,7 @@ function PromptEditor({
         </div>
 
         {/* Tags, Priority, Version */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-6">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Tags</label>
             <div className="flex flex-wrap gap-1 mb-2">
@@ -1083,13 +1171,13 @@ function PromptEditor({
             value={promptTemplate}
             onChange={(e) => setPromptTemplate(e.target.value)}
             placeholder="Enter your prompt template..."
-            rows={24}
-            className="w-full px-4 py-3 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"
+            rows={30}
+            className="w-full px-4 py-4 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y min-h-[500px]"
           />
         </div>
 
         {/* Output Extraction */}
-        <div className="bg-slate-50 rounded-lg p-4 space-y-4">
+        <div className="bg-slate-50 rounded-lg p-6 space-y-5">
           <h4 className="text-sm font-medium text-slate-700">Output Extraction</h4>
 
           <div className="grid grid-cols-2 gap-4">
