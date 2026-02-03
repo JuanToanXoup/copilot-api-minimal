@@ -234,12 +234,15 @@ export default function PromptsTab() {
     for (const file of Array.from(files)) {
       try {
         const content = await file.text();
-        const parsed = parseMarkdownPrompt(content);
+        // Get filename without extension to use as ID
+        const filenameWithoutExt = file.name.replace(/\.md$/i, '');
+        const parsed = parseMarkdownPrompt(content, filenameWithoutExt);
         if (parsed) {
           const id = addPromptTemplate(parsed);
           const fullTemplate = useStore.getState().getPromptTemplateById(id);
           if (fullTemplate) {
-            await saveToBackend(fullTemplate);
+            // Save with the original filename
+            await saveToBackend({ ...fullTemplate, sourceFilename: filenameWithoutExt });
             imported++;
           }
         }
@@ -260,7 +263,8 @@ export default function PromptsTab() {
   };
 
   const parseMarkdownPrompt = (
-    content: string
+    content: string,
+    sourceFilename?: string
   ): Omit<PromptTemplate, 'id' | 'createdAt' | 'updatedAt'> | null => {
     const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
     if (!match) return null;
@@ -271,8 +275,8 @@ export default function PromptsTab() {
 
       if (!frontmatter || typeof frontmatter !== 'object') return null;
 
-      // Extract name - required field
-      const name = frontmatter.name as string || frontmatter.description as string;
+      // Extract name - use filename as fallback, then description
+      const name = frontmatter.name as string || sourceFilename || frontmatter.description as string;
       if (!name) return null;
 
       // Extract tags - can be array or string
@@ -326,7 +330,7 @@ export default function PromptsTab() {
       />
 
       {/* Left Sidebar - Prompt List */}
-      <div className="w-80 bg-white border-r border-slate-200 flex flex-col">
+      <div className="w-64 bg-white border-r border-slate-200 flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-slate-200">
           <div className="flex items-center justify-between mb-3">

@@ -175,8 +175,13 @@ async def save_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
     prompt_id = prompt.get('id') or _sanitize_filename(name)
     prompt['id'] = prompt_id
 
-    # Use sanitized name for filename
-    safe_name = _sanitize_filename(name)
+    # Use sourceFilename if provided (for imports), otherwise sanitize name
+    source_filename = prompt.pop('sourceFilename', None)
+    if source_filename:
+        # Keep original filename for imports
+        safe_name = source_filename
+    else:
+        safe_name = _sanitize_filename(name)
     file_path = PROMPTS_DIR / f"{safe_name}.md"
 
     # Add/update timestamps
