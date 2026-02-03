@@ -945,74 +945,105 @@ function PromptEditor({
   }, [promptTemplate]);
 
   return (
-    <div className="flex-1 flex flex-col h-full w-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-8 py-5 border-b border-slate-200 bg-white">
-        <div className="flex items-center gap-3">
-          <FileText className="w-5 h-5 text-indigo-500" />
-          <h2 className="font-semibold text-slate-800">{template ? 'Edit Prompt' : 'New Prompt'}</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          {template && (
-            <>
-              {onCopy && (
-                <button
-                  onClick={() => onCopy(promptTemplate)}
-                  className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
-                  title="Copy template"
-                >
-                  {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                </button>
-              )}
-              {onExport && (
-                <button
-                  onClick={onExport}
-                  className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
-                  title="Export as .md"
-                >
-                  <Download className="w-4 h-4" />
-                </button>
-              )}
-              {onDuplicate && (
-                <button
-                  onClick={onDuplicate}
-                  className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
-                  title="Duplicate"
-                >
-                  <Copy className="w-4 h-4" />
-                </button>
-              )}
-              {onDelete && (
-                <button
-                  onClick={onDelete}
-                  className="p-2 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
-                  title="Delete"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={!name.trim() || !promptTemplate.trim()}
-            className={clsx(
-              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium',
-              name.trim() && promptTemplate.trim()
-                ? 'bg-indigo-500 text-white hover:bg-indigo-600'
-                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+    <div className="flex-1 flex h-full w-full">
+      {/* Middle - Template Editor */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white">
+          <div className="flex items-center gap-3">
+            <FileText className="w-5 h-5 text-indigo-500" />
+            <h2 className="font-semibold text-slate-800">{template ? 'Edit Prompt' : 'New Prompt'}</h2>
+            {variables.length > 0 && (
+              <div className="flex items-center gap-1 ml-4">
+                <span className="text-xs text-slate-500">Variables:</span>
+                {variables.map((v) => (
+                  <span key={v} className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-mono">
+                    {`{{${v}}}`}
+                  </span>
+                ))}
+              </div>
             )}
-          >
-            <Save className="w-4 h-4" />
-            Save
-          </button>
+          </div>
+          <div className="flex items-center gap-2">
+            {template && (
+              <>
+                {onCopy && (
+                  <button
+                    onClick={() => onCopy(promptTemplate)}
+                    className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                    title="Copy template"
+                  >
+                    {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                )}
+                {onExport && (
+                  <button
+                    onClick={onExport}
+                    className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                    title="Export as .md"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                )}
+                {onDuplicate && (
+                  <button
+                    onClick={onDuplicate}
+                    className="p-2 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                    title="Duplicate"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    onClick={onDelete}
+                    className="p-2 rounded hover:bg-red-50 text-slate-400 hover:text-red-600"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </>
+            )}
+            <button
+              onClick={handleSave}
+              disabled={!name.trim() || !promptTemplate.trim()}
+              className={clsx(
+                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium',
+                name.trim() && promptTemplate.trim()
+                  ? 'bg-indigo-500 text-white hover:bg-indigo-600'
+                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              )}
+            >
+              <Save className="w-4 h-4" />
+              Save
+            </button>
+          </div>
+        </div>
+
+        {/* Template Editor - Full Height */}
+        <div className="flex-1 flex flex-col p-6 bg-slate-50">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-slate-700">Prompt Template</label>
+            <p className="text-xs text-slate-500">Use {'{{variable}}'} syntax for dynamic values</p>
+          </div>
+          <textarea
+            value={promptTemplate}
+            onChange={(e) => setPromptTemplate(e.target.value)}
+            placeholder="Enter your prompt template..."
+            className="flex-1 w-full px-4 py-4 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none bg-white"
+          />
         </div>
       </div>
 
-      {/* Editor Content */}
-      <div className="flex-1 w-full overflow-y-auto p-10 space-y-8 bg-white">
-        {/* Basic Info */}
-        <div className="grid grid-cols-2 gap-8">
+      {/* Right Sidebar - Settings */}
+      <div className="w-[350px] flex-shrink-0 border-l border-slate-200 bg-white flex flex-col overflow-y-auto">
+        <div className="p-4 border-b border-slate-200">
+          <h3 className="font-medium text-slate-700">Settings</h3>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+          {/* Name */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
             <input
@@ -1023,6 +1054,20 @@ function PromptEditor({
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
           </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Brief description of what this prompt does"
+              rows={2}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+            />
+          </div>
+
+          {/* Category */}
           <div className="relative">
             <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
             <div className="relative">
@@ -1054,19 +1099,8 @@ function PromptEditor({
               )}
             </div>
           </div>
-        </div>
 
-        <div className="grid grid-cols-2 gap-8">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Brief description of what this prompt does"
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-          </div>
+          {/* Folder */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Folder</label>
             <div className="relative">
@@ -1085,13 +1119,11 @@ function PromptEditor({
               </select>
             </div>
           </div>
-        </div>
 
-        {/* Tags, Priority, Version */}
-        <div className="grid grid-cols-3 gap-6">
+          {/* Tags */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Tags</label>
-            <div className="flex flex-wrap gap-1 mb-2">
+            <div className="flex flex-wrap gap-1 mb-2 min-h-[24px]">
               {tags.map((tag) => (
                 <span
                   key={tag}
@@ -1126,61 +1158,38 @@ function PromptEditor({
               </button>
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Priority</label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as PromptPriority | '')}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            >
-              <option value="">None</option>
-              <option value="P1">P1 - Critical</option>
-              <option value="P2">P2 - Important</option>
-              <option value="P3">P3 - Nice to have</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Version</label>
-            <input
-              type="text"
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              placeholder="e.g., 1.0.0"
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            />
-          </div>
-        </div>
 
-        {/* Template */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-sm font-medium text-slate-700">Prompt Template</label>
-            {variables.length > 0 && (
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-slate-500">Variables:</span>
-                {variables.map((v) => (
-                  <span key={v} className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-mono">
-                    {`{{${v}}}`}
-                  </span>
-                ))}
-              </div>
-            )}
+          {/* Priority & Version */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as PromptPriority | '')}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              >
+                <option value="">None</option>
+                <option value="P1">P1</option>
+                <option value="P2">P2</option>
+                <option value="P3">P3</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Version</label>
+              <input
+                type="text"
+                value={version}
+                onChange={(e) => setVersion(e.target.value)}
+                placeholder="1.0.0"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+            </div>
           </div>
-          <p className="text-xs text-slate-500 mb-2">Use {'{{variable}}'} syntax for dynamic values</p>
-          <textarea
-            value={promptTemplate}
-            onChange={(e) => setPromptTemplate(e.target.value)}
-            placeholder="Enter your prompt template..."
-            rows={30}
-            className="w-full px-4 py-4 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y min-h-[500px]"
-          />
-        </div>
 
-        {/* Output Extraction */}
-        <div className="bg-slate-50 rounded-lg p-6 space-y-5">
-          <h4 className="text-sm font-medium text-slate-700">Output Extraction</h4>
+          {/* Output Extraction */}
+          <div className="bg-slate-50 rounded-lg p-4 space-y-4">
+            <h4 className="text-sm font-medium text-slate-700">Output Extraction</h4>
 
-          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Output Name</label>
               <input
@@ -1188,15 +1197,16 @@ function PromptEditor({
                 value={outputName}
                 onChange={(e) => setOutputName(e.target.value)}
                 placeholder="output"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
               />
             </div>
+
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Extraction Mode</label>
               <select
                 value={extractionMode}
                 onChange={(e) => setExtractionMode(e.target.value as ExtractionMode)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
               >
                 <option value="full">Full Response</option>
                 <option value="json">Parse as JSON</option>
@@ -1205,33 +1215,31 @@ function PromptEditor({
                 <option value="first_line">First Line</option>
               </select>
             </div>
+
+            {(extractionMode === 'jsonpath' || extractionMode === 'regex') && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Pattern</label>
+                <input
+                  type="text"
+                  value={extractionPattern}
+                  onChange={(e) => setExtractionPattern(e.target.value)}
+                  placeholder={extractionMode === 'jsonpath' ? '$.result.value' : '(\\d+)'}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                />
+              </div>
+            )}
           </div>
 
-          {(extractionMode === 'jsonpath' || extractionMode === 'regex') && (
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Pattern</label>
-              <input
-                type="text"
-                value={extractionPattern}
-                onChange={(e) => setExtractionPattern(e.target.value)}
-                placeholder={extractionMode === 'jsonpath' ? '$.result.value' : '(\\d+)'}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
+          {/* Metadata */}
+          {template && (
+            <div className="text-xs text-slate-400 space-y-1 pt-2 border-t border-slate-100">
+              <p className="font-medium text-slate-500 mb-2">Metadata</p>
+              <p>ID: {template.id}</p>
+              <p>Created: {new Date(template.createdAt).toLocaleString()}</p>
+              <p>Updated: {new Date(template.updatedAt).toLocaleString()}</p>
             </div>
           )}
         </div>
-
-        {/* Metadata */}
-        {template && (
-          <div className="text-xs text-slate-400 space-y-1">
-            <p>ID: {template.id}</p>
-            {template.version && <p>Version: {template.version}</p>}
-            {template.priority && <p>Priority: {template.priority}</p>}
-            {template.tags && template.tags.length > 0 && <p>Tags: {template.tags.join(', ')}</p>}
-            <p>Created: {new Date(template.createdAt).toLocaleString()}</p>
-            <p>Updated: {new Date(template.updatedAt).toLocaleString()}</p>
-          </div>
-        )}
       </div>
     </div>
   );
