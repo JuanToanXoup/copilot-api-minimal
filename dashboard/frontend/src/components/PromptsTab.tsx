@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '../store';
-import type { PromptTemplate, ExtractionMode } from '../types';
+import type { PromptTemplate, ExtractionMode, PromptPriority } from '../types';
 
 const API_BASE = 'http://localhost:8080';
 
@@ -174,6 +174,9 @@ export default function PromptsTab() {
       name: `${template.name} (Copy)`,
       description: template.description,
       category: template.category,
+      tags: template.tags ? [...template.tags] : undefined,
+      priority: template.priority,
+      version: template.version,
       template: template.template,
       outputExtraction: { ...template.outputExtraction },
     };
@@ -193,6 +196,9 @@ export default function PromptsTab() {
       `name: ${template.name}`,
       template.description ? `description: ${template.description}` : null,
       template.category ? `category: ${template.category}` : null,
+      template.tags && template.tags.length > 0 ? `tags: [${template.tags.join(', ')}]` : null,
+      template.priority ? `priority: ${template.priority}` : null,
+      template.version ? `version: ${template.version}` : null,
       'outputExtraction:',
       `  mode: ${template.outputExtraction.mode}`,
       `  outputName: ${template.outputExtraction.outputName}`,
@@ -282,10 +288,22 @@ export default function PromptsTab() {
 
     if (!frontmatter.name) return null;
 
+    // Parse tags from [tag1, tag2] format
+    let tags: string[] | undefined;
+    if (frontmatter.tags) {
+      const tagsMatch = frontmatter.tags.match(/\[(.*)\]/);
+      if (tagsMatch) {
+        tags = tagsMatch[1].split(',').map((t) => t.trim()).filter(Boolean);
+      }
+    }
+
     return {
       name: frontmatter.name,
       description: frontmatter.description,
       category: frontmatter.category,
+      tags,
+      priority: frontmatter.priority as PromptPriority | undefined,
+      version: frontmatter.version,
       template,
       outputExtraction: {
         mode: (outputExtraction.mode as ExtractionMode) || 'full',
@@ -511,11 +529,27 @@ function PromptEditor({
   const [name, setName] = useState(template?.name || '');
   const [description, setDescription] = useState(template?.description || '');
   const [category, setCategory] = useState(template?.category || '');
+  const [tags, setTags] = useState<string[]>(template?.tags || []);
+  const [tagInput, setTagInput] = useState('');
+  const [priority, setPriority] = useState<PromptPriority | ''>(template?.priority || '');
+  const [version, setVersion] = useState(template?.version || '');
   const [promptTemplate, setPromptTemplate] = useState(template?.template || '');
   const [extractionMode, setExtractionMode] = useState<ExtractionMode>(template?.outputExtraction.mode || 'full');
   const [extractionPattern, setExtractionPattern] = useState(template?.outputExtraction.pattern || '');
   const [outputName, setOutputName] = useState(template?.outputExtraction.outputName || 'output');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+
+  const handleAddTag = () => {
+    const trimmed = tagInput.trim();
+    if (trimmed && !tags.includes(trimmed)) {
+      setTags([...tags, trimmed]);
+      setTagInput('');
+    }
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setTags(tags.filter((t) => t !== tagToRemove));
+  };
 
   const handleSave = () => {
     if (!name.trim() || !promptTemplate.trim()) return;
@@ -523,6 +557,9 @@ function PromptEditor({
       name: name.trim(),
       description: description.trim() || undefined,
       category: category.trim() || undefined,
+      tags: tags.length > 0 ? tags : undefined,
+      priority: priority || undefined,
+      version: version.trim() || undefined,
       template: promptTemplate,
       outputExtraction: {
         mode: extractionMode,
@@ -661,6 +698,70 @@ function PromptEditor({
           />
         </div>
 
+        {/* Tags, Priority, Version */}
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tags</label>
+            <div className="flex flex-wrap gap-1 mb-2">
+              {tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs"
+                >
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTag(tag)}
+                    className="hover:text-indigo-900"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-1">
+              <input
+                type="text"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
+                placeholder="Add tag..."
+                className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              <button
+                type="button"
+                onClick={handleAddTag}
+                className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-sm text-slate-600"
+              >
+                +
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Priority</label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as PromptPriority | '')}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            >
+              <option value="">None</option>
+              <option value="P1">P1 - Critical</option>
+              <option value="P2">P2 - Important</option>
+              <option value="P3">P3 - Nice to have</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Version</label>
+            <input
+              type="text"
+              value={version}
+              onChange={(e) => setVersion(e.target.value)}
+              placeholder="e.g., 1.0.0"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          </div>
+        </div>
+
         {/* Template */}
         <div>
           <div className="flex items-center justify-between mb-1">
@@ -735,6 +836,9 @@ function PromptEditor({
         {template && (
           <div className="text-xs text-slate-400 space-y-1">
             <p>ID: {template.id}</p>
+            {template.version && <p>Version: {template.version}</p>}
+            {template.priority && <p>Priority: {template.priority}</p>}
+            {template.tags && template.tags.length > 0 && <p>Tags: {template.tags.join(', ')}</p>}
             <p>Created: {new Date(template.createdAt).toLocaleString()}</p>
             <p>Updated: {new Date(template.updatedAt).toLocaleString()}</p>
           </div>

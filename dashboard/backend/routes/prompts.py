@@ -59,6 +59,9 @@ def _parse_markdown_prompt(content: str) -> dict[str, Any] | None:
             'name': frontmatter.get('name', ''),
             'description': frontmatter.get('description'),
             'category': frontmatter.get('category'),
+            'tags': frontmatter.get('tags'),
+            'priority': frontmatter.get('priority'),
+            'version': frontmatter.get('version'),
             'template': template,
             'outputExtraction': frontmatter.get('outputExtraction', {
                 'mode': 'full',
@@ -83,6 +86,15 @@ def _format_markdown_prompt(prompt: dict[str, Any]) -> str:
 
     if prompt.get('category'):
         frontmatter['category'] = prompt['category']
+
+    if prompt.get('tags'):
+        frontmatter['tags'] = prompt['tags']
+
+    if prompt.get('priority'):
+        frontmatter['priority'] = prompt['priority']
+
+    if prompt.get('version'):
+        frontmatter['version'] = prompt['version']
 
     frontmatter['outputExtraction'] = prompt.get('outputExtraction', {
         'mode': 'full',
