@@ -287,26 +287,33 @@ async def delete_prompt(prompt_id: str, folder: str | None = None) -> dict[str, 
 
 @router.get("/folders/list")
 async def list_folders() -> list[dict[str, Any]]:
-    """List all prompt folders."""
+    """List all prompt folders, including nested ones."""
     _ensure_prompts_dir()
     folders = []
 
-    for item in PROMPTS_DIR.iterdir():
-        if item.is_dir() and not item.name.startswith('.'):
-            # Count prompts in folder
-            prompt_count = len(list(item.glob("*.md")))
-            folders.append({
-                "name": item.name,
-                "path": str(item),
-                "promptCount": prompt_count,
-            })
+    def scan_folders(base_path, prefix=""):
+        """Recursively scan for folders."""
+        for item in base_path.iterdir():
+            if item.is_dir() and not item.name.startswith('.'):
+                # Count prompts in folder (only direct .md files, not nested)
+                prompt_count = len(list(item.glob("*.md")))
+                folder_name = f"{prefix}{item.name}" if prefix else item.name
+                folders.append({
+                    "name": folder_name,
+                    "path": str(item),
+                    "promptCount": prompt_count,
+                    "parent": prefix.rstrip('/') if prefix else None,
+                })
+                # Recursively scan subfolders
+                scan_folders(item, f"{folder_name}/")
 
+    scan_folders(PROMPTS_DIR)
     return sorted(folders, key=lambda x: x['name'].lower())
 
 
 @router.post("/folders")
 async def create_folder(data: dict[str, Any]) -> dict[str, Any]:
-    """Create a new prompt folder."""
+    """Create a new prompt folder, optionally inside a parent folder."""
     _ensure_prompts_dir()
 
     name = data.get('name', '').strip()
@@ -318,13 +325,25 @@ async def create_folder(data: dict[str, Any]) -> dict[str, Any]:
     if not safe_name:
         return {"error": "Invalid folder name"}
 
-    folder_path = PROMPTS_DIR / safe_name
+    # Check for parent folder (for nested folder creation)
+    parent = data.get('parent')
+    if parent and parent != '__root__':
+        # Create inside parent folder
+        parent_path = PROMPTS_DIR / parent
+        if not parent_path.exists() or not parent_path.is_dir():
+            return {"error": f"Parent folder '{parent}' not found"}
+        folder_path = parent_path / safe_name
+        full_name = f"{parent}/{safe_name}"
+    else:
+        folder_path = PROMPTS_DIR / safe_name
+        full_name = safe_name
+
     if folder_path.exists():
         return {"error": "Folder already exists"}
 
     try:
         folder_path.mkdir(parents=True, exist_ok=True)
-        return {"status": "created", "name": safe_name, "path": str(folder_path)}
+        return {"status": "created", "name": full_name, "path": str(folder_path), "parent": parent}
     except Exception as e:
         return {"error": str(e)}
 

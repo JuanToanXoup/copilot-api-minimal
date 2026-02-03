@@ -137,12 +137,12 @@ export default function PromptsTab() {
     }
   };
 
-  const createFolder = async (name: string) => {
+  const createFolder = async (name: string, parent?: string | null) => {
     try {
       const response = await fetch(`${API_BASE}/api/prompts/folders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, parent: parent || creatingFolderIn }),
       });
       const result = await response.json();
       if (result.error) {
@@ -1042,9 +1042,9 @@ function PromptEditor({
   const [outputName, setOutputName] = useState(template?.outputExtraction.outputName || 'output');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
 
-  // Line numbers editor refs
+  // Line numbers editor refs and scroll state
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const lineNumbersRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
 
   // Calculate line numbers
   const lineNumbers = useMemo(() => {
@@ -1052,10 +1052,10 @@ function PromptEditor({
     return lines.map((_, i) => i + 1);
   }, [promptTemplate]);
 
-  // Sync scroll between textarea and line numbers
+  // Sync scroll between textarea and line numbers using transform
   const handleScroll = () => {
-    if (textareaRef.current && lineNumbersRef.current) {
-      lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop;
+    if (textareaRef.current) {
+      setScrollTop(textareaRef.current.scrollTop);
     }
   };
 
@@ -1182,18 +1182,22 @@ function PromptEditor({
           <div className="flex-1 flex border border-slate-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-indigo-400 min-h-0 overflow-hidden">
             {/* Line numbers gutter */}
             <div
-              ref={lineNumbersRef}
-              className="flex-shrink-0 bg-slate-50 border-r border-slate-200 pt-4 pb-4 overflow-y-hidden select-none"
+              className="flex-shrink-0 bg-slate-50 border-r border-slate-200 overflow-hidden select-none"
               style={{ width: '50px' }}
             >
-              {lineNumbers.map((num) => (
-                <div
-                  key={num}
-                  className="text-right pr-3 text-xs font-mono text-slate-400 leading-[21px] h-[21px]"
-                >
-                  {num}
-                </div>
-              ))}
+              <div
+                className="pt-4 pb-4"
+                style={{ transform: `translateY(-${scrollTop}px)` }}
+              >
+                {lineNumbers.map((num) => (
+                  <div
+                    key={num}
+                    className="text-right pr-3 text-xs font-mono text-slate-400 leading-[21px] h-[21px]"
+                  >
+                    {num}
+                  </div>
+                ))}
+              </div>
             </div>
             {/* Editor textarea */}
             <textarea
