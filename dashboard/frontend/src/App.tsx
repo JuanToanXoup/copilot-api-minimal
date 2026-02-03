@@ -15,7 +15,7 @@ import {
   type NodeTypes,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { LayoutGrid, Settings } from 'lucide-react';
+import { LayoutGrid } from 'lucide-react';
 
 import PromptNode from './components/PromptNode';
 import AgentNode from './components/AgentNode';
@@ -24,18 +24,31 @@ import SupervisorNode from './components/SupervisorNode';
 import RouterNode from './components/RouterNode';
 import AggregatorNode from './components/AggregatorNode';
 import EvaluatorNode from './components/EvaluatorNode';
+import PromptBlockNode, { type PromptBlockData } from './components/PromptBlockNode';
+import WorkflowStartNode from './components/WorkflowStartNode';
 import TemplateSelector from './components/TemplateSelector';
 import FlowManager from './components/FlowManager';
 import Sidebar from './components/Sidebar';
 import ToastContainer from './components/Toast';
 import RoleEditor from './components/RoleEditor';
 import BlockEditor from './components/BlockEditor';
+import ViewModeToggle from './components/ViewModeToggle';
+import MonitoringLayout from './components/MonitoringLayout';
 import { useStore } from './store';
 import { workflowTemplates, type WorkflowTemplate } from './workflowTemplates';
+import type { PromptWorkflowTemplate } from './promptWorkflowTemplates';
 import { validateOutput, generateRetryPrompt } from './utils/outputValidator';
 import { getHierarchicalLayout } from './utils/canvasLayout';
 import { formatErrorForToast } from './utils/errorMessages';
-import type { Agent } from './types';
+import { initializeMockData } from './utils/mockData';
+import {
+  substituteVariables,
+  extractOutputs,
+  getUpstreamNodeIds,
+  getExecutionOrder,
+  type WorkflowContext,
+} from './utils/workflowVariables';
+import type { Agent, Instance, TaskQueues, FailureState, OrchestratorEvent, PromptMetrics } from './types';
 
 const nodeTypes: NodeTypes = {
   prompt: PromptNode,
@@ -45,6 +58,8 @@ const nodeTypes: NodeTypes = {
   router: RouterNode,
   aggregator: AggregatorNode,
   evaluator: EvaluatorNode,
+  promptBlock: PromptBlockNode,
+  workflowStart: WorkflowStartNode,
 };
 
 // Get initial template
@@ -61,8 +76,35 @@ function getAgentFromNode(node: Node): Agent | null {
 }
 
 function AppContent() {
-  const { agents, setAgents, addActivity, connected, setConnected, addToast } = useStore();
+  const {
+    agents,
+    setAgents,
+    addActivity,
+    connected,
+    setConnected,
+    addToast,
+    viewMode,
+    setViewMode,
+    setInstances,
+    setTasks,
+    setFailures,
+    updateFailure,
+    addEvent,
+    setPromptMetrics,
+  } = useStore();
   const { fitView } = useReactFlow();
+
+  // Initialize mock data on mount (for demo purposes)
+  useEffect(() => {
+    initializeMockData({
+      setInstances,
+      setTasks,
+      setFailures,
+      addEvent,
+      setPromptMetrics,
+      setViewMode,
+    });
+  }, []);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [workflowStatus, setWorkflowStatus] = useState<'idle' | 'running' | 'complete'>('idle');
@@ -123,6 +165,26 @@ function AppContent() {
                   duration: 3000,
                 });
               }
+            }
+            // Self-Healing Test Architecture Messages
+            else if (data.type === 'instances_update') {
+              setInstances(data.instances as Instance[]);
+            } else if (data.type === 'tasks_update') {
+              setTasks({
+                inbound: data.inbound || [],
+                work: data.work || [],
+                result: data.result || [],
+              } as TaskQueues);
+            } else if (data.type === 'failure_update') {
+              if (data.failure) {
+                updateFailure(data.failure.id, data.failure as Partial<FailureState>);
+              }
+            } else if (data.type === 'failures_list') {
+              setFailures(data.failures as FailureState[]);
+            } else if (data.type === 'orchestrator_event') {
+              addEvent(data.event as OrchestratorEvent);
+            } else if (data.type === 'prompt_metrics') {
+              setPromptMetrics(data.metrics as PromptMetrics[]);
             }
           } catch (err) {
             console.error('Error parsing message:', err);
@@ -763,9 +825,176 @@ function AppContent() {
     return order;
   };
 
+  // Run prompt block workflow with variable substitution
+  const runPromptBlockWorkflow = useCallback(async (input: string) => {
+    if (!wsRef.current || workflowStatus === 'running') return;
+
+    setWorkflowStatus('running');
+
+    // Initialize context with input
+    const context: WorkflowContext = {
+      input,
+      nodeOutputs: {},
+    };
+
+    // Reset all nodes to idle
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.type === 'workflowStart') {
+          return { ...node, data: { ...node.data, status: 'running' } };
+        }
+        if (node.type === 'promptBlock') {
+          return {
+            ...node,
+            data: { ...node.data, status: 'idle', prompt: '', response: '', extractedOutputs: {} },
+          };
+        }
+        if (node.type === 'output') {
+          return { ...node, data: { ...node.data, status: 'idle', results: [] } };
+        }
+        return node;
+      })
+    );
+
+    // Get execution order
+    const executionOrder = getExecutionOrder(nodes, edges);
+    const results: Array<{ label: string; response: string; outputs: Record<string, unknown> }> = [];
+
+    // Execute nodes in order
+    for (const nodeId of executionOrder) {
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) continue;
+
+      // Skip non-promptBlock nodes
+      if (node.type !== 'promptBlock') continue;
+
+      const blockData = node.data as unknown as PromptBlockData;
+
+      // Determine which agent/port to use
+      // Priority: manual port > assigned agent
+      const manualPort = blockData.port;
+      let targetAgent = blockData.agent;
+
+      // If manual port is set, try to find a matching agent
+      if (manualPort) {
+        const agentByPort = agents.find((a) => a.port === manualPort && a.connected);
+        if (agentByPort) {
+          targetAgent = agentByPort;
+        }
+      }
+
+      // Skip if no agent/port available
+      if (!targetAgent || !targetAgent.connected) {
+        setNodes((nds) =>
+          nds.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    status: 'error',
+                    response: manualPort
+                      ? `No connected agent found on port ${manualPort}`
+                      : 'No agent assigned or agent not connected',
+                  },
+                }
+              : n
+          )
+        );
+        continue;
+      }
+
+      // Get upstream node IDs
+      const upstreamIds = getUpstreamNodeIds(nodeId, nodes, edges);
+
+      // Substitute variables in template
+      const resolvedPrompt = substituteVariables(
+        blockData.promptTemplate || '',
+        blockData.variableBindings || [],
+        context,
+        upstreamIds
+      );
+
+      // Update node to show running state with resolved prompt
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === nodeId
+            ? { ...n, data: { ...n.data, status: 'running', prompt: resolvedPrompt } }
+            : n
+        )
+      );
+
+      // Send prompt to agent
+      const result = await sendPromptToAgent(targetAgent.instance_id, resolvedPrompt);
+      const isError = !!result.error;
+      const response = result.content || result.error || 'No response';
+
+      // Extract outputs from response
+      const extractedOutputs = extractOutputs(response, blockData.outputExtractions || []);
+
+      // Store outputs in context for downstream nodes
+      context.nodeOutputs[nodeId] = extractedOutputs;
+
+      // Update node with response
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  status: isError ? 'error' : 'success',
+                  response,
+                  extractedOutputs,
+                },
+              }
+            : n
+        )
+      );
+
+      results.push({
+        label: blockData.label || 'Prompt Block',
+        response,
+        outputs: extractedOutputs,
+      });
+
+      // Small delay for visual effect
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    // Update output node with results
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.type === 'workflowStart') {
+          return { ...node, data: { ...node.data, status: 'complete' } };
+        }
+        if (node.type === 'output') {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              status: 'complete',
+              results: results.map((r) => ({
+                role: r.label,
+                response: typeof r.outputs.output === 'string' ? r.outputs.output : JSON.stringify(r.outputs),
+                timestamp: new Date().toISOString(),
+              })),
+            },
+          };
+        }
+        return node;
+      })
+    );
+
+    setWorkflowStatus('complete');
+  }, [nodes, edges, workflowStatus, setNodes]);
+
   // Use ref to avoid infinite loop with runWorkflow dependency
   const runWorkflowRef = useRef(runWorkflow);
   runWorkflowRef.current = runWorkflow;
+
+  const runPromptBlockWorkflowRef = useRef(runPromptBlockWorkflow);
+  runPromptBlockWorkflowRef.current = runPromptBlockWorkflow;
 
   useEffect(() => {
     setNodes((nds) =>
@@ -788,13 +1017,22 @@ function AppContent() {
             },
           };
         }
+        if (node.type === 'workflowStart') {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              onStart: (input: string) => runPromptBlockWorkflowRef.current(input),
+            },
+          };
+        }
         return node;
       })
     );
   }, []); // Only run once on mount
 
-  // Handle template selection
-  const handleSelectTemplate = useCallback((template: WorkflowTemplate) => {
+  // Handle template selection (supports both WorkflowTemplate and PromptWorkflowTemplate)
+  const handleSelectTemplate = useCallback((template: WorkflowTemplate | PromptWorkflowTemplate) => {
     setSelectedTemplate(template.id);
     setWorkflowStatus('idle');
 
@@ -818,6 +1056,15 @@ function AppContent() {
               data: {
                 ...node.data,
                 onStart: (prompt: string) => runWorkflowRef.current(prompt),
+              },
+            };
+          }
+          if (node.type === 'workflowStart') {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                onStart: (input: string) => runPromptBlockWorkflowRef.current(input),
               },
             };
           }
@@ -849,103 +1096,220 @@ function AppContent() {
               },
             };
           }
+          if (node.type === 'workflowStart') {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                onStart: (input: string) => runPromptBlockWorkflowRef.current(input),
+              },
+            };
+          }
           return node;
         })
       );
     }, 0);
   }, [setNodes, setEdges]);
 
+  // =====================
+  // Self-Healing Test Architecture Handlers
+  // =====================
+
+  // Spawn a new IntelliJ instance
+  const handleSpawnInstance = useCallback(() => {
+    if (!wsRef.current) {
+      addToast({
+        type: 'error',
+        title: 'Not Connected',
+        message: 'Cannot spawn instance while disconnected.',
+      });
+      return;
+    }
+
+    wsRef.current.send(JSON.stringify({ type: 'spawn_instance' }));
+    addToast({
+      type: 'info',
+      title: 'Spawning Instance',
+      message: 'New IntelliJ instance is starting...',
+      duration: 3000,
+    });
+  }, [addToast]);
+
+  // Retry a failed failure
+  const handleRetryFailure = useCallback((failureId: string) => {
+    if (!wsRef.current) {
+      addToast({
+        type: 'error',
+        title: 'Not Connected',
+        message: 'Cannot retry failure while disconnected.',
+      });
+      return;
+    }
+
+    wsRef.current.send(JSON.stringify({ type: 'retry_failure', failure_id: failureId }));
+    addToast({
+      type: 'info',
+      title: 'Retrying Failure',
+      message: `Retrying failure ${failureId.slice(0, 8)}...`,
+      duration: 3000,
+    });
+  }, [addToast]);
+
+  // Escalate a failure
+  const handleEscalateFailure = useCallback((failureId: string) => {
+    if (!wsRef.current) {
+      addToast({
+        type: 'error',
+        title: 'Not Connected',
+        message: 'Cannot escalate failure while disconnected.',
+      });
+      return;
+    }
+
+    wsRef.current.send(JSON.stringify({ type: 'escalate_failure', failure_id: failureId }));
+    addToast({
+      type: 'warning',
+      title: 'Failure Escalated',
+      message: `Failure ${failureId.slice(0, 8)} has been escalated.`,
+      duration: 3000,
+    });
+  }, [addToast]);
+
+  // Request initial monitoring data when switching to monitoring mode
+  useEffect(() => {
+    if (viewMode === 'monitoring' && wsRef.current && connected) {
+      // Request current state
+      wsRef.current.send(JSON.stringify({ type: 'get_failures' }));
+      wsRef.current.send(JSON.stringify({ type: 'get_instances' }));
+      wsRef.current.send(JSON.stringify({ type: 'get_tasks' }));
+      wsRef.current.send(JSON.stringify({ type: 'get_prompt_metrics' }));
+    }
+  }, [viewMode, connected]);
+
   return (
-    <div className="flex h-screen w-screen">
+    <div className="flex flex-col h-screen w-screen">
       {/* Toast notifications */}
       <ToastContainer />
 
       {/* Role Editor Modal */}
       <RoleEditor isOpen={showRoleEditor} onClose={() => setShowRoleEditor(false)} />
 
-      {/* Left sidebar: Templates + Agents */}
-      <div className="w-72 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden">
-        {/* Template Selector */}
-        <div className="p-4 border-b border-slate-200">
-          <TemplateSelector
-            selectedTemplate={selectedTemplate}
-            onSelectTemplate={handleSelectTemplate}
-          />
+      {/* Top Header Bar with View Mode Toggle */}
+      <div className="h-14 bg-white border-b border-slate-200 px-4 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-4">
+          <h1 className="font-semibold text-slate-800">Agent Dashboard</h1>
+          <ViewModeToggle />
         </div>
-
-        {/* Agent list - flex container for Sidebar's internal layout */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Sidebar agents={agents} onDragStart={onDragStart} onSpawnAgent={onSpawnAgent} />
-        </div>
-      </div>
-
-      <div className="flex-1 flex relative">
-        {/* Canvas area */}
-        <div className="flex-1 relative">
-        {/* Top toolbar */}
-        <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
-          {/* Flow Manager and Auto-arrange */}
-          <div className="flex items-center gap-2">
-            <div className="bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200">
-              <FlowManager
-                nodes={nodes}
-                edges={edges}
-                selectedTemplate={selectedTemplate}
-                onLoadFlow={handleLoadFlow}
-              />
-            </div>
-            <button
-              onClick={handleAutoArrange}
-              className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors text-sm text-slate-600"
-              title="Auto-arrange nodes"
-            >
-              <LayoutGrid className="w-4 h-4" />
-              <span>Auto Layout</span>
-            </button>
-            <button
-              onClick={() => setShowRoleEditor(true)}
-              className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors text-sm text-slate-600"
-              title="Edit role definitions"
-            >
-              <Settings className="w-4 h-4" />
-              <span>Edit Roles</span>
-            </button>
-          </div>
-
+        <div className="flex items-center gap-3">
           {/* Connection Status */}
-          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full shadow-sm border border-slate-200">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100">
             <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
             <span className="text-sm text-slate-600">
               {connected ? 'Connected' : 'Disconnected'}
             </span>
           </div>
         </div>
+      </div>
 
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-          onNodeClick={onNodeClick}
-          onPaneClick={onPaneClick}
-          nodeTypes={nodeTypes}
-          fitView
-          className="bg-slate-50"
-        >
-          <Controls className="bg-white border border-slate-200 rounded-lg" />
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#cbd5e1" />
-        </ReactFlow>
-        </div>
+      {/* Main Content Area */}
+      <div className="flex-1 flex overflow-hidden">
+        {viewMode === 'workflow' && (
+          <>
+            {/* Left sidebar: Templates only */}
+            <div className="w-72 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden">
+              <div className="p-4">
+                <TemplateSelector
+                  selectedTemplate={selectedTemplate}
+                  onSelectTemplate={handleSelectTemplate}
+                />
+              </div>
+            </div>
 
-        {/* Block Editor Panel */}
-        {selectedNode && (
-          <BlockEditor
-            node={selectedNode}
-            onClose={() => setSelectedNodeId(null)}
-            onUpdateNode={handleUpdateNodeData}
+            <div className="flex-1 flex relative">
+              {/* Canvas area */}
+              <div className="flex-1 relative">
+                {/* Top toolbar */}
+                <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
+                  {/* Flow Manager and Auto-arrange */}
+                  <div className="flex items-center gap-2">
+                    <div className="bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200">
+                      <FlowManager
+                        nodes={nodes}
+                        edges={edges}
+                        selectedTemplate={selectedTemplate}
+                        onLoadFlow={handleLoadFlow}
+                      />
+                    </div>
+                    <button
+                      onClick={handleAutoArrange}
+                      className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors text-sm text-slate-600"
+                      title="Auto-arrange nodes"
+                    >
+                      <LayoutGrid className="w-4 h-4" />
+                      <span>Auto Layout</span>
+                    </button>
+                  </div>
+                </div>
+
+                <ReactFlow
+                  nodes={nodes}
+                  edges={edges}
+                  onNodesChange={onNodesChange}
+                  onEdgesChange={onEdgesChange}
+                  onConnect={onConnect}
+                  onDrop={onDrop}
+                  onDragOver={onDragOver}
+                  onNodeClick={onNodeClick}
+                  onPaneClick={onPaneClick}
+                  nodeTypes={nodeTypes}
+                  fitView
+                  className="bg-slate-50"
+                >
+                  <Controls className="bg-white border border-slate-200 rounded-lg" />
+                  <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#cbd5e1" />
+                </ReactFlow>
+              </div>
+
+              {/* Block Editor Panel */}
+              {selectedNode && (
+                <BlockEditor
+                  node={selectedNode}
+                  onClose={() => setSelectedNodeId(null)}
+                  onUpdateNode={handleUpdateNodeData}
+                />
+              )}
+            </div>
+          </>
+        )}
+
+        {viewMode === 'agents' && (
+          /* Agents Mode - Connected instances */
+          <div className="flex-1 flex">
+            <div className="w-80 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden">
+              <Sidebar agents={agents} onDragStart={onDragStart} onSpawnAgent={onSpawnAgent} />
+            </div>
+            <div className="flex-1 bg-slate-50 flex items-center justify-center">
+              <div className="text-center text-slate-400">
+                <p className="text-lg font-medium mb-2">Connected Agents</p>
+                <p className="text-sm">
+                  {agents.filter(a => a.connected).length} of {agents.length} agents connected
+                </p>
+                <p className="text-xs mt-4">
+                  Use the sidebar to spawn new agents or manage existing ones.
+                  <br />
+                  Switch to <strong>Workflow</strong> tab to build prompt workflows.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {viewMode === 'monitoring' && (
+          /* Monitoring Mode */
+          <MonitoringLayout
+            onSpawnInstance={handleSpawnInstance}
+            onRetryFailure={handleRetryFailure}
+            onEscalateFailure={handleEscalateFailure}
           />
         )}
       </div>

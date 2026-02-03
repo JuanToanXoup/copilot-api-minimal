@@ -1,5 +1,14 @@
 import { create } from 'zustand';
-import type { Agent, ActivityEvent } from './types';
+import type {
+  Agent,
+  ActivityEvent,
+  Instance,
+  TaskQueues,
+  FailureState,
+  OrchestratorEvent,
+  PromptMetrics,
+  ViewMode,
+} from './types';
 
 export interface ToastItem {
   id: string;
@@ -83,6 +92,41 @@ interface Store {
   roleDefinitions: RoleDefinition[];
   updateRoleDefinition: (id: string, updates: Partial<Omit<RoleDefinition, 'id'>>) => void;
   resetRoleDefinitions: () => void;
+
+  // =====================
+  // Self-Healing Test Architecture State
+  // =====================
+
+  // View mode toggle
+  viewMode: ViewMode;
+  setViewMode: (mode: ViewMode) => void;
+
+  // Instance Pool
+  instances: Instance[];
+  setInstances: (instances: Instance[]) => void;
+  updateInstance: (id: string, updates: Partial<Instance>) => void;
+
+  // Task Queues
+  tasks: TaskQueues;
+  setTasks: (tasks: TaskQueues) => void;
+
+  // Failure States
+  failures: FailureState[];
+  setFailures: (failures: FailureState[]) => void;
+  updateFailure: (id: string, updates: Partial<FailureState>) => void;
+  selectedFailureId: string | null;
+  setSelectedFailureId: (id: string | null) => void;
+
+  // Orchestrator Events
+  events: OrchestratorEvent[];
+  addEvent: (event: OrchestratorEvent) => void;
+  clearEvents: () => void;
+  eventsPaused: boolean;
+  setEventsPaused: (paused: boolean) => void;
+
+  // Prompt Metrics
+  promptMetrics: PromptMetrics[];
+  setPromptMetrics: (metrics: PromptMetrics[]) => void;
 }
 
 let toastIdCounter = 0;
@@ -125,4 +169,52 @@ export const useStore = create<Store>((set) => ({
     ),
   })),
   resetRoleDefinitions: () => set({ roleDefinitions: defaultRoleDefinitions }),
+
+  // =====================
+  // Self-Healing Test Architecture State
+  // =====================
+
+  // View mode
+  viewMode: 'workflow',
+  setViewMode: (mode) => set({ viewMode: mode }),
+
+  // Instance Pool
+  instances: [],
+  setInstances: (instances) => set({ instances }),
+  updateInstance: (id, updates) => set((state) => ({
+    instances: state.instances.map((instance) =>
+      instance.id === id ? { ...instance, ...updates } : instance
+    ),
+  })),
+
+  // Task Queues
+  tasks: { inbound: [], work: [], result: [] },
+  setTasks: (tasks) => set({ tasks }),
+
+  // Failure States
+  failures: [],
+  setFailures: (failures) => set({ failures }),
+  updateFailure: (id, updates) => set((state) => ({
+    failures: state.failures.map((failure) =>
+      failure.id === id ? { ...failure, ...updates } : failure
+    ),
+  })),
+  selectedFailureId: null,
+  setSelectedFailureId: (id) => set({ selectedFailureId: id }),
+
+  // Orchestrator Events (max 200, auto-prune oldest)
+  events: [],
+  addEvent: (event) => set((state) => {
+    if (state.eventsPaused) return state;
+    return {
+      events: [event, ...state.events].slice(0, 200),
+    };
+  }),
+  clearEvents: () => set({ events: [] }),
+  eventsPaused: false,
+  setEventsPaused: (paused) => set({ eventsPaused: paused }),
+
+  // Prompt Metrics
+  promptMetrics: [],
+  setPromptMetrics: (metrics) => set({ promptMetrics: metrics }),
 }));
