@@ -1113,9 +1113,19 @@ function PromptEditor({
   };
 
   // Extract variables from template
+  // Extract variables from template - supports both {{variable}} and $VARIABLE formats
   const variables = useMemo(() => {
-    const matches = promptTemplate.match(/\{\{(\w+)\}\}/g) || [];
-    return [...new Set(matches.map((m) => m.slice(2, -2)))];
+    const mustacheMatches = promptTemplate.match(/\{\{(\w+)\}\}/g) || [];
+    const dollarMatches = promptTemplate.match(/\$([A-Z_][A-Z0-9_]*)/g) || [];
+    const mustacheVars = mustacheMatches.map((m) => ({ format: 'mustache' as const, name: m.slice(2, -2), display: m }));
+    const dollarVars = dollarMatches.map((m) => ({ format: 'dollar' as const, name: m.slice(1), display: m }));
+    // Dedupe by display value
+    const seen = new Set<string>();
+    return [...mustacheVars, ...dollarVars].filter((v) => {
+      if (seen.has(v.display)) return false;
+      seen.add(v.display);
+      return true;
+    });
   }, [promptTemplate]);
 
   return (
@@ -1131,8 +1141,14 @@ function PromptEditor({
               <div className="flex items-center gap-1 ml-4">
                 <span className="text-xs text-slate-500">Variables:</span>
                 {variables.map((v) => (
-                  <span key={v} className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-mono">
-                    {`{{${v}}}`}
+                  <span
+                    key={v.display}
+                    className={clsx(
+                      'px-1.5 py-0.5 rounded text-xs font-mono',
+                      v.format === 'mustache' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                    )}
+                  >
+                    {v.display}
                   </span>
                 ))}
               </div>
@@ -1199,7 +1215,7 @@ function PromptEditor({
         <div className="flex-1 flex flex-col p-6 bg-slate-50 min-h-0">
           <div className="flex items-center justify-between mb-2">
             <label className="block text-sm font-medium text-slate-700">Prompt Template</label>
-            <p className="text-xs text-slate-500">Use {'{{variable}}'} syntax for dynamic values</p>
+            <p className="text-xs text-slate-500">Use {'{{variable}}'} or $VARIABLE syntax for dynamic values</p>
           </div>
           <div className="flex-1 flex border border-slate-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-indigo-400 min-h-0 overflow-hidden">
             {/* Line numbers gutter */}
