@@ -114,7 +114,7 @@ def _format_markdown_prompt(prompt: dict[str, Any]) -> str:
 
 @router.get("")
 async def list_prompts() -> list[dict[str, Any]]:
-    """List all saved prompt templates, including those in subfolders."""
+    """List all saved prompt templates, including those in nested subfolders."""
     _ensure_prompts_dir()
     prompts = []
 
@@ -133,21 +133,32 @@ async def list_prompts() -> list[dict[str, Any]]:
         except Exception:
             continue
 
-    # Get prompts from subfolders
+    # Recursively get prompts from all subfolders
+    def scan_folder(folder_path: Path, folder_name: str):
+        """Scan a folder and its subfolders for prompts."""
+        for file in folder_path.glob("*.md"):
+            try:
+                content = file.read_text()
+                prompt = _parse_markdown_prompt(content)
+                if prompt:
+                    if not prompt.get('id'):
+                        prompt['id'] = file.stem
+                    prompt['folder'] = folder_name
+                    prompt['sourceFilename'] = file.stem
+                    prompts.append(prompt)
+            except Exception:
+                continue
+
+        # Recursively scan subfolders
+        for subfolder in folder_path.iterdir():
+            if subfolder.is_dir() and not subfolder.name.startswith('.'):
+                nested_name = f"{folder_name}/{subfolder.name}"
+                scan_folder(subfolder, nested_name)
+
+    # Start scanning from top-level folders
     for folder in PROMPTS_DIR.iterdir():
         if folder.is_dir() and not folder.name.startswith('.'):
-            for file in folder.glob("*.md"):
-                try:
-                    content = file.read_text()
-                    prompt = _parse_markdown_prompt(content)
-                    if prompt:
-                        if not prompt.get('id'):
-                            prompt['id'] = file.stem
-                        prompt['folder'] = folder.name
-                        prompt['sourceFilename'] = file.stem  # Track original filename
-                        prompts.append(prompt)
-                except Exception:
-                    continue
+            scan_folder(folder, folder.name)
 
     return sorted(prompts, key=lambda x: x.get('updatedAt', '') or '', reverse=True)
 
