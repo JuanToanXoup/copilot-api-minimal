@@ -13,6 +13,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import uuid
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -199,8 +200,14 @@ class AgentConnection:
                             status=data.get("status"),
                         )
 
-                        # Resolve pending future if any
-                        if self.instance_id in self._pending_responses:
+                        # Use request_id to resolve pending future
+                        request_id = data.get("request_id")
+                        if request_id and request_id in self._pending_responses:
+                            future = self._pending_responses.pop(request_id)
+                            if not future.done():
+                                future.set_result(data)
+                        # Fallback for legacy: use instance_id if no request_id
+                        elif self.instance_id in self._pending_responses:
                             future = self._pending_responses.pop(self.instance_id)
                             if not future.done():
                                 future.set_result(data)
@@ -235,7 +242,8 @@ class AgentConnection:
                 prompt=prompt[:100],
             )
 
-            # Create future for response
+            # Store future by instance_id (one pending request per agent)
+            # The agent doesn't echo back request_id, so we use instance_id for matching
             future: asyncio.Future = asyncio.get_event_loop().create_future()
             self._pending_responses[self.instance_id] = future
 
@@ -244,16 +252,9 @@ class AgentConnection:
                 "prompt": prompt,
             }))
 
-            # Wait for "executing" status
-            response = await asyncio.wait_for(self.ws.recv(), timeout=10)
-            data = json.loads(response)
-
-            if data.get("status") == "executing":
-                # Wait for actual result
-                result = await asyncio.wait_for(future, timeout=120)
-                return result
-            else:
-                return data
+            # Wait for actual result (set by listen)
+            result = await asyncio.wait_for(future, timeout=120)
+            return result
 
         except asyncio.TimeoutError:
             self._pending_responses.pop(self.instance_id, None)
@@ -553,15 +554,19 @@ async def websocket_endpoint(websocket: WebSocket):
             if message.get("type") == "send_prompt":
                 instance_id = message.get("instance_id")
                 prompt = message.get("prompt")
+                request_id = message.get("request_id")  # Echo back for matching
 
                 if instance_id and prompt and instance_id in agent_connections:
                     conn = agent_connections[instance_id]
                     result = await conn.send_prompt(prompt)
-                    await websocket.send_text(json.dumps({
+                    response = {
                         "type": "prompt_result",
                         "instance_id": instance_id,
                         "result": result,
-                    }))
+                    }
+                    if request_id:
+                        response["request_id"] = request_id
+                    await websocket.send_text(json.dumps(response))
 
             elif message.get("type") == "send_to_role":
                 role = message.get("role")

@@ -108,6 +108,7 @@ function AppContent() {
   const [showRoleEditor, setShowRoleEditor] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const isWorkflowRunningRef = useRef(false); // Ref-based guard for concurrent execution
 
   // Get the selected node object
   const selectedNode = selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) || null : null;
@@ -768,9 +769,18 @@ function AppContent() {
         return;
       }
 
+      // Generate unique request ID to match response correctly
+      const requestId = `${instanceId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      console.log(`[Workflow] Sending request ${requestId} to agent ${instanceId}`);
+
       const handler = (event: MessageEvent) => {
         const data = JSON.parse(event.data);
-        if (data.type === 'prompt_result' && data.instance_id === instanceId) {
+        // Match by request_id if available, otherwise fall back to instance_id
+        const isMatch = data.type === 'prompt_result' &&
+          (data.request_id === requestId || (!data.request_id && data.instance_id === instanceId));
+
+        if (isMatch) {
+          console.log(`[Workflow] Received response for request ${requestId}`);
           wsRef.current?.removeEventListener('message', handler);
           resolve(data.result);
         }
@@ -781,6 +791,7 @@ function AppContent() {
       wsRef.current.send(JSON.stringify({
         type: 'send_prompt',
         instance_id: instanceId,
+        request_id: requestId,
         prompt,
       }));
 
@@ -823,7 +834,7 @@ function AppContent() {
 
   // Helper: Substitute variables in a template string
   // - {{input}} always comes from workflow start
-  // - Other variables auto-resolve from upstream node outputs (via connections)
+  // - Any other variable auto-resolves to the most recent upstream output
   // - Static bindings override auto-resolution
   const substituteTemplateVariables = (
     template: string,
@@ -834,7 +845,23 @@ function AppContent() {
     let result = template;
     const variableRegex = /\{\{(\w+)\}\}/g;
 
-    result = result.replace(variableRegex, (match, varName) => {
+    // Get all upstream outputs as a flat list (most recent first)
+    const upstreamValues: string[] = [];
+    for (const nodeId of Object.keys(nodeOutputs).reverse()) {
+      const outputs = nodeOutputs[nodeId];
+      if (outputs && typeof outputs === 'object') {
+        const outputObj = outputs as Record<string, unknown>;
+        // Get the first value from this node's outputs
+        const firstKey = Object.keys(outputObj)[0];
+        if (firstKey) {
+          const value = outputObj[firstKey];
+          const strValue = typeof value === 'string' ? value : JSON.stringify(value);
+          upstreamValues.push(strValue);
+        }
+      }
+    }
+
+    result = result.replace(variableRegex, (_match, varName) => {
       // {{input}} always comes from workflow start
       if (varName === 'input') {
         return workflowInput;
@@ -846,27 +873,27 @@ function AppContent() {
         return binding.staticValue || '';
       }
 
-      // Auto-resolve from upstream connections
-      // Look through all upstream outputs for a matching key
+      // Auto-resolve: First try exact name match in upstream outputs
       for (const nodeId of Object.keys(nodeOutputs)) {
         const outputs = nodeOutputs[nodeId];
         if (outputs && typeof outputs === 'object') {
           const outputObj = outputs as Record<string, unknown>;
-          // Check if this node's output has the variable name as a key
           if (varName in outputObj) {
             const value = outputObj[varName];
-            return typeof value === 'string' ? value : JSON.stringify(value);
-          }
-          // Also check for 'output' as a fallback (common default name)
-          if (varName === 'output' && 'output' in outputObj) {
-            const value = outputObj.output;
             return typeof value === 'string' ? value : JSON.stringify(value);
           }
         }
       }
 
-      // If still not found, keep the placeholder (will show as unresolved)
-      return match;
+      // Auto-resolve: If no exact match, use the most recent upstream output
+      // This allows {{code}}, {{analysis}}, etc. to all resolve to upstream data
+      if (upstreamValues.length > 0) {
+        return upstreamValues[0];
+      }
+
+      // Last resort: if no upstream, use workflow input for any variable
+      // This handles templates that use {{code}} when input is actually {{input}}
+      return workflowInput;
     });
 
     return result;
@@ -921,14 +948,24 @@ function AppContent() {
 
   // Run prompt block workflow with reference-based architecture
   const runPromptBlockWorkflow = useCallback(async (input: string) => {
-    if (!wsRef.current || workflowStatus === 'running') return;
+    console.log('[Workflow] runPromptBlockWorkflow called, isRunning:', isWorkflowRunningRef.current);
 
+    // Use ref for immediate guard (React state is async)
+    if (!wsRef.current || isWorkflowRunningRef.current) {
+      console.log('[Workflow] BLOCKED - already running or no websocket');
+      return;
+    }
+
+    // Set ref immediately to block concurrent calls
+    isWorkflowRunningRef.current = true;
     setWorkflowStatus('running');
+    console.log('[Workflow] Started workflow execution');
 
+    try {
     // Context for variable substitution
     const nodeOutputs: Record<string, unknown> = {};
 
-    // Reset all nodes to idle
+    // Reset all nodes - set promptBlocks to 'waiting' to show they're queued
     setNodes((nds) =>
       nds.map((node) => {
         if (node.type === 'workflowStart') {
@@ -937,7 +974,7 @@ function AppContent() {
         if (node.type === 'promptBlock') {
           return {
             ...node,
-            data: { ...node.data, status: 'idle', resolvedPrompt: '', response: '', extractedOutput: null },
+            data: { ...node.data, status: 'waiting', resolvedPrompt: '', response: '', extractedOutput: null },
           };
         }
         if (node.type === 'output') {
@@ -947,11 +984,26 @@ function AppContent() {
       })
     );
 
+    // Force UI to show waiting states
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     // Get execution order
+    const promptBlockNodes = nodes.filter(n => n.type === 'promptBlock');
+    console.log('[Workflow] ===== WORKFLOW DEBUG =====');
+    console.log('[Workflow] All nodes:', nodes.map(n => `${n.id} (${n.type})`));
+    console.log('[Workflow] PromptBlock nodes:', promptBlockNodes.map(n => n.id));
+    console.log('[Workflow] All edges:', edges);
+    console.log('[Workflow] Edge connections:', edges.map(e => `${e.source} -> ${e.target}`));
+
     const executionOrder = getExecutionOrder(nodes, edges);
+    console.log('[Workflow] Execution order (all):', executionOrder);
+
+    const promptBlocksInOrder = executionOrder.filter(id => promptBlockNodes.some(n => n.id === id));
+    console.log('[Workflow] PromptBlocks to execute in order:', promptBlocksInOrder);
+    console.log('[Workflow] ===========================');
     const results: Array<{ label: string; response: string; output: unknown }> = [];
 
-    // Execute nodes in order
+    // Execute nodes in order (SEQUENTIAL - each must complete before next starts)
     for (const nodeId of executionOrder) {
       const node = nodes.find((n) => n.id === nodeId);
       if (!node || node.type !== 'promptBlock') continue;
@@ -1024,8 +1076,13 @@ function AppContent() {
         )
       );
 
+      // Force UI to update before making API call
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       // Send prompt to agent
+      console.log(`[Workflow] >>> STARTING node ${nodeId} at ${new Date().toISOString()}`);
       const result = await sendPromptToAgent(targetAgent.instance_id, resolvedPrompt);
+      console.log(`[Workflow] <<< COMPLETED node ${nodeId} at ${new Date().toISOString()}`);
       const isError = !!result.error;
       const response = result.content || result.error || 'No response';
 
@@ -1091,7 +1148,10 @@ function AppContent() {
     );
 
     setWorkflowStatus('complete');
-  }, [nodes, edges, workflowStatus, setNodes, agents, getPromptTemplateById]);
+    } finally {
+      isWorkflowRunningRef.current = false;
+    }
+  }, [nodes, edges, setNodes, agents, getPromptTemplateById]);
 
   // Use ref to avoid infinite loop with runWorkflow dependency
   const runWorkflowRef = useRef(runWorkflow);

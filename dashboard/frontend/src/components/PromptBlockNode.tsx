@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '../store';
-import type { PromptBlockNodeData, VariableBinding } from '../types';
+import type { PromptBlockNodeData } from '../types';
 
 // Extract {{variable}} names from template
 export function extractVariables(template: string): string[] {
@@ -46,7 +46,6 @@ function PromptBlockNode({ id, data, selected }: PromptBlockNodeProps) {
     label,
     agentId,
     promptTemplateId,
-    variableBindings,
     status,
     resolvedPrompt,
     response,
@@ -66,12 +65,6 @@ function PromptBlockNode({ id, data, selected }: PromptBlockNodeProps) {
   const templateVariables = useMemo(
     () => extractVariables(selectedTemplate?.template || ''),
     [selectedTemplate?.template]
-  );
-
-  // Check which variables are bound
-  const unboundVariables = useMemo(
-    () => templateVariables.filter((v) => !variableBindings.some((b) => b.variableName === v)),
-    [templateVariables, variableBindings]
   );
 
   // Update node data helper
@@ -106,20 +99,6 @@ function PromptBlockNode({ id, data, selected }: PromptBlockNodeProps) {
     [updateNodeData]
   );
 
-  // Handle variable binding change
-  const handleBindingChange = useCallback(
-    (variableName: string, source: VariableBinding['source'], value?: string) => {
-      const existingBindings = variableBindings.filter((b) => b.variableName !== variableName);
-      const newBinding: VariableBinding = {
-        variableName,
-        source,
-        ...(source === 'static' && { staticValue: value }),
-        ...(source === 'upstream' && { sourceNodeId: value }),
-      };
-      updateNodeData({ variableBindings: [...existingBindings, newBinding] });
-    },
-    [variableBindings, updateNodeData]
-  );
 
   const StatusIcon = () => {
     switch (status) {
@@ -262,15 +241,12 @@ function PromptBlockNode({ id, data, selected }: PromptBlockNodeProps) {
                 <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">
                   Variables
                 </span>
-                {unboundVariables.length > 0 && (
-                  <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">
-                    {unboundVariables.length} unbound
-                  </span>
-                )}
+                <span className="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded">
+                  auto-resolves
+                </span>
               </div>
               <div className="space-y-2">
                 {templateVariables.map((varName) => {
-                  const binding = variableBindings.find((b) => b.variableName === varName);
                   const isInputVar = varName === 'input';
                   return (
                     <div key={varName} className="flex items-center gap-2">
@@ -282,15 +258,9 @@ function PromptBlockNode({ id, data, selected }: PromptBlockNodeProps) {
                           ← Workflow input
                         </span>
                       ) : (
-                        <select
-                          value={binding?.source || 'upstream'}
-                          onChange={(e) => handleBindingChange(varName, e.target.value as VariableBinding['source'])}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          className="flex-1 text-[10px] px-1.5 py-1 rounded border border-slate-200 bg-white nodrag"
-                        >
-                          <option value="upstream">← From connections</option>
-                          <option value="static">Static value</option>
-                        </select>
+                        <span className="flex-1 text-[10px] px-1.5 py-1 rounded bg-green-50 text-green-600 border border-green-200">
+                          ← Auto from upstream
+                        </span>
                       )}
                     </div>
                   );
