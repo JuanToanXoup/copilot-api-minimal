@@ -137,12 +137,12 @@ export default function PromptsTab() {
     }
   };
 
-  const createFolder = async (name: string) => {
+  const createFolder = async (name: string, parent?: string | null) => {
     try {
       const response = await fetch(`${API_BASE}/api/prompts/folders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, parent: parent || creatingFolderIn }),
       });
       const result = await response.json();
       if (result.error) {
