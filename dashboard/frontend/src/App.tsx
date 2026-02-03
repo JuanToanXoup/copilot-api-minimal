@@ -24,11 +24,11 @@ import SupervisorNode from './components/SupervisorNode';
 import RouterNode from './components/RouterNode';
 import AggregatorNode from './components/AggregatorNode';
 import EvaluatorNode from './components/EvaluatorNode';
+import ConditionNode from './components/ConditionNode';
 import PromptBlockNode from './components/PromptBlockNode';
 import WorkflowStartNode from './components/WorkflowStartNode';
 import TemplateSelector from './components/TemplateSelector';
 import FlowManager from './components/FlowManager';
-import PromptTemplateManager from './components/PromptTemplateManager';
 import Sidebar from './components/Sidebar';
 import ToastContainer from './components/Toast';
 import RoleEditor from './components/RoleEditor';
@@ -55,6 +55,7 @@ const nodeTypes: NodeTypes = {
   router: RouterNode,
   aggregator: AggregatorNode,
   evaluator: EvaluatorNode,
+  condition: ConditionNode,
   promptBlock: PromptBlockNode,
   workflowStart: WorkflowStartNode,
 };
@@ -1397,17 +1398,15 @@ function AppContent() {
 
         {viewMode === 'workflow' && (
           <>
-            {/* Left sidebar: Workflow Templates + Prompt Registry */}
+            {/* Left sidebar: Workflow Templates */}
             <div className="w-72 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden">
               <div className="flex-1 overflow-y-auto">
-                <div className="p-4 border-b border-slate-200">
+                <div className="p-4">
                   <TemplateSelector
                     selectedTemplate={selectedTemplate}
                     onSelectTemplate={handleSelectTemplate}
                   />
                 </div>
-                {/* Prompt Template Registry - like Postman's Collections */}
-                <PromptTemplateManager />
               </div>
             </div>
 
