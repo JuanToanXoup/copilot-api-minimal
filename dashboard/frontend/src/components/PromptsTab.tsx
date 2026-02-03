@@ -329,7 +329,13 @@ export default function PromptsTab() {
       updatePromptTemplate(selectedPrompt.id, template);
       const fullTemplate = useStore.getState().getPromptTemplateById(selectedPrompt.id);
       if (fullTemplate) {
-        await saveToBackend({ ...fullTemplate, folder: template.folder } as PromptTemplate & { folder?: string | null });
+        // Preserve sourceFilename from the selected prompt to keep original filename
+        const sourceFilename = (selectedPrompt as PromptTemplate & { sourceFilename?: string }).sourceFilename;
+        await saveToBackend({
+          ...fullTemplate,
+          folder: template.folder,
+          sourceFilename
+        } as PromptTemplate & { folder?: string | null; sourceFilename?: string });
         setSelectedPrompt(fullTemplate);
       }
     }
