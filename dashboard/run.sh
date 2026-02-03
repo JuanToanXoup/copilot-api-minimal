@@ -24,7 +24,7 @@ fi
 # Install backend dependencies
 echo "Installing backend dependencies..."
 cd "$SCRIPT_DIR/backend"
-pip install -r requirements.txt -q
+python3 -m pip install -r requirements.txt -q
 
 # Install frontend dependencies if needed
 echo "Checking frontend dependencies..."
