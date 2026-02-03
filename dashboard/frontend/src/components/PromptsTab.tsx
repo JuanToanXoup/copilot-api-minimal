@@ -69,6 +69,39 @@ export default function PromptsTab() {
   const [draggedPrompt, setDraggedPrompt] = useState<{ id: string; folder: string | null } | null>(null);
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
 
+  // Sidebar resize state
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [isResizing, setIsResizing] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // Handle sidebar resize
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const newWidth = e.clientX;
+      // Constrain between 200px and 500px
+      setSidebarWidth(Math.min(Math.max(newWidth, 200), 500));
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
+
   // Load prompts and folders from backend on mount
   useEffect(() => {
     loadFromBackend();
@@ -511,7 +544,16 @@ export default function PromptsTab() {
       />
 
       {/* Left Sidebar - Prompt List */}
-      <div className="w-[280px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col">
+      <div
+        ref={sidebarRef}
+        style={{ width: sidebarWidth }}
+        className="flex-shrink-0 bg-white border-r border-slate-200 flex flex-col relative"
+      >
+        {/* Resize handle */}
+        <div
+          className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-indigo-400 transition-colors z-10"
+          onMouseDown={() => setIsResizing(true)}
+        />
         {/* Header */}
         <div className="p-4 border-b border-slate-200">
           <div className="flex items-center justify-between mb-3">
@@ -913,6 +955,23 @@ function PromptEditor({
   const [outputName, setOutputName] = useState(template?.outputExtraction.outputName || 'output');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
 
+  // Line numbers editor refs
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lineNumbersRef = useRef<HTMLDivElement>(null);
+
+  // Calculate line numbers
+  const lineNumbers = useMemo(() => {
+    const lines = promptTemplate.split('\n');
+    return lines.map((_, i) => i + 1);
+  }, [promptTemplate]);
+
+  // Sync scroll between textarea and line numbers
+  const handleScroll = () => {
+    if (textareaRef.current && lineNumbersRef.current) {
+      lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  };
+
   const handleAddTag = () => {
     const trimmed = tagInput.trim();
     if (trimmed && !tags.includes(trimmed)) {
@@ -1027,18 +1086,39 @@ function PromptEditor({
           </div>
         </div>
 
-        {/* Template Editor - Full Height */}
+        {/* Template Editor - Full Height with Line Numbers */}
         <div className="flex-1 flex flex-col p-6 bg-slate-50">
           <div className="flex items-center justify-between mb-2">
             <label className="block text-sm font-medium text-slate-700">Prompt Template</label>
             <p className="text-xs text-slate-500">Use {'{{variable}}'} syntax for dynamic values</p>
           </div>
-          <textarea
-            value={promptTemplate}
-            onChange={(e) => setPromptTemplate(e.target.value)}
-            placeholder="Enter your prompt template..."
-            className="flex-1 w-full px-4 py-4 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none bg-white"
-          />
+          <div className="flex-1 flex border border-slate-200 rounded-lg overflow-hidden bg-white focus-within:ring-2 focus-within:ring-indigo-400">
+            {/* Line numbers gutter */}
+            <div
+              ref={lineNumbersRef}
+              className="flex-shrink-0 bg-slate-50 border-r border-slate-200 py-4 overflow-hidden select-none"
+              style={{ width: '50px' }}
+            >
+              {lineNumbers.map((num) => (
+                <div
+                  key={num}
+                  className="text-right pr-3 text-xs font-mono text-slate-400 leading-[21px]"
+                >
+                  {num}
+                </div>
+              ))}
+            </div>
+            {/* Editor textarea */}
+            <textarea
+              ref={textareaRef}
+              value={promptTemplate}
+              onChange={(e) => setPromptTemplate(e.target.value)}
+              onScroll={handleScroll}
+              placeholder="Enter your prompt template..."
+              className="flex-1 px-4 py-4 text-sm font-mono focus:outline-none resize-none leading-[21px]"
+              spellCheck={false}
+            />
+          </div>
         </div>
       </div>
 
@@ -1068,7 +1148,7 @@ function PromptEditor({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Brief description of what this prompt does"
-              rows={2}
+              rows={4}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
             />
           </div>
