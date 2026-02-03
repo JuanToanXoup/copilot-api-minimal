@@ -505,7 +505,7 @@ export default function PromptsTab() {
       />
 
       {/* Left Sidebar - Prompt List */}
-      <div className="w-[400px] bg-white border-r border-slate-200 flex flex-col">
+      <div className="w-[280px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-slate-200">
           <div className="flex items-center justify-between mb-3">
@@ -825,7 +825,7 @@ export default function PromptsTab() {
       </div>
 
       {/* Right Panel - Editor */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-[900px]">
         {isCreating ? (
           <PromptEditor
             onSave={handleCreate}
