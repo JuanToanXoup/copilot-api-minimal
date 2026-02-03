@@ -292,6 +292,10 @@ export default function PromptTemplateManager() {
       `id: ${template.id}`,
       `name: ${template.name}`,
       template.description ? `description: ${template.description}` : null,
+      template.category ? `category: ${template.category}` : null,
+      template.tags && template.tags.length > 0 ? `tags: [${template.tags.join(', ')}]` : null,
+      template.priority ? `priority: ${template.priority}` : null,
+      template.version ? `version: ${template.version}` : null,
       'outputExtraction:',
       `  mode: ${template.outputExtraction.mode}`,
       `  outputName: ${template.outputExtraction.outputName}`,
@@ -366,9 +370,22 @@ export default function PromptTemplateManager() {
 
     if (!frontmatter.name) return null;
 
+    // Parse tags from [tag1, tag2] format
+    let tags: string[] | undefined;
+    if (frontmatter.tags) {
+      const tagsMatch = frontmatter.tags.match(/\[(.*)\]/);
+      if (tagsMatch) {
+        tags = tagsMatch[1].split(',').map((t) => t.trim()).filter(Boolean);
+      }
+    }
+
     return {
       name: frontmatter.name,
       description: frontmatter.description,
+      category: frontmatter.category,
+      tags,
+      priority: frontmatter.priority as 'P1' | 'P2' | 'P3' | undefined,
+      version: frontmatter.version,
       template,
       outputExtraction: {
         mode: (outputExtraction.mode as ExtractionMode) || 'full',

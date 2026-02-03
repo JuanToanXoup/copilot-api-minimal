@@ -149,6 +149,9 @@ export type ViewMode = 'prompts' | 'workflow' | 'monitoring' | 'agents';
 // Output extraction modes
 export type ExtractionMode = 'full' | 'json' | 'jsonpath' | 'regex' | 'first_line';
 
+// Priority levels for prompts (spec-kit inspired)
+export type PromptPriority = 'P1' | 'P2' | 'P3';
+
 // A reusable prompt template stored in the registry (like a Postman Request in a Collection)
 export interface PromptTemplate {
   id: string;
@@ -156,6 +159,12 @@ export interface PromptTemplate {
   description?: string;
   // Category for organizing prompts
   category?: string;
+  // Tags for additional categorization
+  tags?: string[];
+  // Priority level for workflow ordering
+  priority?: PromptPriority;
+  // Version for tracking prompt iterations
+  version?: string;
   // The prompt template with {{variable}} placeholders
   template: string;
   // Output extraction configuration
