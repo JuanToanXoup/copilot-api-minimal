@@ -128,6 +128,7 @@ async def list_prompts() -> list[dict[str, Any]]:
                 if not prompt.get('id'):
                     prompt['id'] = file.stem
                 prompt['folder'] = None  # Root level
+                prompt['sourceFilename'] = file.stem  # Track original filename
                 prompts.append(prompt)
         except Exception:
             continue
@@ -143,6 +144,7 @@ async def list_prompts() -> list[dict[str, Any]]:
                         if not prompt.get('id'):
                             prompt['id'] = file.stem
                         prompt['folder'] = folder.name
+                        prompt['sourceFilename'] = file.stem  # Track original filename
                         prompts.append(prompt)
                 except Exception:
                     continue
@@ -200,32 +202,38 @@ async def save_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
     else:
         target_dir = PROMPTS_DIR
 
-    # Use sourceFilename if provided (for imports), otherwise sanitize name
-    source_filename = prompt.pop('sourceFilename', None)
+    # Use sourceFilename if provided (preserves original filename when editing)
+    # Don't pop it - we need to keep it for the response
+    source_filename = prompt.get('sourceFilename')
     if source_filename:
-        # Keep original filename for imports
+        # Keep original filename
         safe_name = source_filename
     else:
         safe_name = _sanitize_filename(name)
+
     file_path = target_dir / f"{safe_name}.md"
+
+    # Remove sourceFilename from the data we'll save to the file
+    # (it's metadata about the file, not part of the prompt content)
+    prompt_to_save = {k: v for k, v in prompt.items() if k != 'sourceFilename'}
 
     # Add/update timestamps
     now = datetime.now().isoformat()
     if not file_path.exists():
-        prompt['createdAt'] = now
+        prompt_to_save['createdAt'] = now
     else:
         # Preserve original createdAt
         existing = _parse_markdown_prompt(file_path.read_text())
         if existing and existing.get('createdAt'):
-            prompt['createdAt'] = existing['createdAt']
+            prompt_to_save['createdAt'] = existing['createdAt']
         else:
-            prompt['createdAt'] = now
-    prompt['updatedAt'] = now
+            prompt_to_save['createdAt'] = now
+    prompt_to_save['updatedAt'] = now
 
     try:
-        content = _format_markdown_prompt(prompt)
+        content = _format_markdown_prompt(prompt_to_save)
         file_path.write_text(content)
-        return {"status": "saved", "id": prompt_id, "path": str(file_path), "folder": folder}
+        return {"status": "saved", "id": prompt_id, "path": str(file_path), "folder": folder, "sourceFilename": safe_name}
     except Exception as e:
         return {"error": str(e)}
 
