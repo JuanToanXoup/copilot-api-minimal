@@ -35,6 +35,7 @@ import RoleEditor from './components/RoleEditor';
 import BlockEditor from './components/BlockEditor';
 import ViewModeToggle from './components/ViewModeToggle';
 import MonitoringLayout from './components/MonitoringLayout';
+import PromptsTab from './components/PromptsTab';
 import { useStore } from './store';
 import { workflowTemplates, type WorkflowTemplate } from './workflowTemplates';
 import type { PromptWorkflowTemplate } from './promptWorkflowTemplates';
@@ -1378,6 +1379,8 @@ function AppContent() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
+        {viewMode === 'prompts' && <PromptsTab />}
+
         {viewMode === 'workflow' && (
           <>
             {/* Left sidebar: Workflow Templates + Prompt Registry */}
