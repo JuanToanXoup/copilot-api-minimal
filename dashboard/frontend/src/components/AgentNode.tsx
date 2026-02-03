@@ -3,7 +3,7 @@ import { Handle, Position, useReactFlow } from '@xyflow/react';
 import { Loader2, CheckCircle2, XCircle, Circle, ChevronDown, ChevronUp, Code, FileJson, FileText, FileCode, Maximize2, Minimize2, Eye, EyeOff } from 'lucide-react';
 import clsx from 'clsx';
 import type { Agent } from '../types';
-import { getRoleConfig } from '../utils/roleConfig';
+import { getRoleConfig, roleOptions } from '../utils/roleConfig';
 import { getDisplayName } from '../utils/agentNaming';
 import { getUserFriendlyError, isErrorResponse } from '../utils/errorMessages';
 import { generatePromptPreview } from '../utils/promptBuilder';
@@ -15,16 +15,6 @@ const outputTypes = [
   { value: 'code', label: 'Code', icon: Code, color: 'bg-blue-100 text-blue-700', description: 'Source code output' },
   { value: 'json', label: 'JSON', icon: FileJson, color: 'bg-green-100 text-green-700', description: 'Structured JSON data' },
   { value: 'markdown', label: 'Markdown', icon: FileCode, color: 'bg-purple-100 text-purple-700', description: 'Formatted markdown' },
-];
-
-// Role options
-const roleOptions = [
-  { value: 'coder', label: 'Coder', color: 'bg-blue-100 text-blue-700' },
-  { value: 'reviewer', label: 'Reviewer', color: 'bg-purple-100 text-purple-700' },
-  { value: 'tester', label: 'Tester', color: 'bg-green-100 text-green-700' },
-  { value: 'architect', label: 'Architect', color: 'bg-orange-100 text-orange-700' },
-  { value: 'docs', label: 'Docs Writer', color: 'bg-yellow-100 text-yellow-700' },
-  { value: 'debugger', label: 'Debugger', color: 'bg-red-100 text-red-700' },
 ];
 
 interface AgentNodeData {
@@ -62,7 +52,7 @@ function AgentNode({ id, data }: AgentNodeProps) {
   const [showSchemaEditor, setShowSchemaEditor] = useState(false);
   const [showPromptPreview, setShowPromptPreview] = useState(false);
 
-  const selectedRole = roleOptions.find(r => r.value === role) || roleOptions[0];
+  const selectedRoleConfig = roleOptions.find(r => r.value === role) || roleOptions[0];
   const selectedOutputType = outputTypes.find(t => t.value === outputType) || outputTypes[0];
   const OutputIcon = selectedOutputType.icon;
 
@@ -215,8 +205,8 @@ function AgentNode({ id, data }: AgentNodeProps) {
                   showRoleDropdown ? 'border-blue-400 ring-1 ring-blue-200' : 'border-slate-200'
                 )}
               >
-                <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', selectedRole.color)}>
-                  {selectedRole.label}
+                <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', selectedRoleConfig.bgColor, selectedRoleConfig.color)}>
+                  {selectedRoleConfig.label}
                 </span>
                 <ChevronDown className="w-3 h-3 text-slate-400" />
               </button>
@@ -231,7 +221,7 @@ function AgentNode({ id, data }: AgentNodeProps) {
                         role === option.value && 'bg-blue-50'
                       )}
                     >
-                      <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', option.color)}>
+                      <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', option.bgColor, option.color)}>
                         {option.label}
                       </span>
                     </button>

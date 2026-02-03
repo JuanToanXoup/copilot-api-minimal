@@ -10,6 +10,7 @@ import type {
   ViewMode,
   PromptTemplate,
 } from './types';
+import { roleConfigs } from './utils/roleConfig';
 
 export interface ToastItem {
   id: string;
@@ -83,50 +84,18 @@ Provide feedback on:
   },
 ];
 
-// Default role definitions
-const defaultRoleDefinitions: RoleDefinition[] = [
-  {
-    id: 'coder',
-    label: 'Coder',
-    description: 'You are a software developer. Write clean, efficient code.',
-    outputInstruction: 'Respond with working code.',
-  },
-  {
-    id: 'reviewer',
-    label: 'Reviewer',
-    description: 'You are a code reviewer. Analyze code for issues, suggest improvements, and identify potential bugs.',
-    outputInstruction: 'Provide detailed code review feedback.',
-  },
-  {
-    id: 'tester',
-    label: 'Tester',
-    description: 'You are a QA engineer. Write comprehensive tests and identify edge cases.',
-    outputInstruction: 'Respond with test cases and testing strategies.',
-  },
-  {
-    id: 'architect',
-    label: 'Architect',
-    description: 'You are a software architect. Design systems, define patterns, and provide high-level technical guidance.',
-    outputInstruction: 'Provide architectural recommendations and design decisions.',
-  },
-  {
-    id: 'docs',
-    label: 'Docs Writer',
-    description: 'You are a technical writer. Create clear, comprehensive documentation and explanations.',
-    outputInstruction: 'Respond with well-structured documentation.',
-  },
-  {
-    id: 'debugger',
-    label: 'Debugger',
-    description: 'You are a debugging specialist. Analyze issues, find root causes, and fix bugs.',
-    outputInstruction: 'Identify the problem and provide a fix.',
-  },
-];
+// Default role definitions - derived from unified roleConfigs
+const defaultRoleDefinitions: RoleDefinition[] = Object.values(roleConfigs).map((config) => ({
+  id: config.value,
+  label: config.label,
+  description: config.promptDescription,
+  outputInstruction: config.outputInstruction,
+}));
 
 interface Store {
   // Agents (source of truth for agent configurations)
   agents: Agent[];
-  setAgents: (agents: Agent[]) => void;
+  setAgents: (agents: Agent[] | ((prev: Agent[]) => Agent[])) => void;
   getAgentById: (instanceId: string) => Agent | undefined;
 
   // Prompt Templates Registry (source of truth for prompt configurations)
@@ -201,7 +170,9 @@ let templateIdCounter = 0;
 export const useStore = create<Store>((set, get) => ({
   // Agents (source of truth)
   agents: [],
-  setAgents: (agents) => set({ agents }),
+  setAgents: (agents) => set((state) => ({
+    agents: typeof agents === 'function' ? agents(state.agents) : agents,
+  })),
   getAgentById: (instanceId) => get().agents.find((a) => a.instance_id === instanceId),
 
   // Prompt Templates Registry (source of truth)

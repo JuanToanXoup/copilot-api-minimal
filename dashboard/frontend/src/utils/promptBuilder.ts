@@ -1,14 +1,10 @@
 import type { RoleDefinition } from '../store';
+import { roleConfigs } from './roleConfig';
 
-// Default role descriptions (fallback if store not available)
-export const defaultRoleDescriptions: Record<string, string> = {
-  coder: 'You are a software developer. Write clean, efficient code.',
-  reviewer: 'You are a code reviewer. Analyze code for issues, suggest improvements.',
-  tester: 'You are a QA engineer. Write tests and identify edge cases.',
-  architect: 'You are a software architect. Design systems and provide high-level guidance.',
-  docs: 'You are a technical writer. Create clear documentation and explanations.',
-  debugger: 'You are a debugging specialist. Find and fix bugs, diagnose issues.',
-};
+// Default role descriptions - derived from unified roleConfig
+export const defaultRoleDescriptions: Record<string, string> = Object.fromEntries(
+  Object.entries(roleConfigs).map(([key, config]) => [key, config.promptDescription])
+);
 
 export const outputTypeInstructions: Record<string, string> = {
   text: 'Respond with plain text.',
@@ -32,11 +28,12 @@ export function generateSystemContext(
 ): string {
   const { role, outputType, outputSchema } = config;
 
-  // Find role definition from store or use default
+  // Find role definition from store or use roleConfig fallback
   const roleDef = roleDefinitions?.find((r) => r.id === role);
-  const roleLabel = roleDef?.label || role;
-  const roleDesc = roleDef?.description || defaultRoleDescriptions[role] || defaultRoleDescriptions.coder;
-  const roleOutputInstr = roleDef?.outputInstruction || '';
+  const roleConfig = roleConfigs[role] || roleConfigs.coder;
+  const roleLabel = roleDef?.label || roleConfig.label;
+  const roleDesc = roleDef?.description || roleConfig.promptDescription;
+  const roleOutputInstr = roleDef?.outputInstruction || roleConfig.outputInstruction;
 
   const outputInstr = outputTypeInstructions[outputType] || outputTypeInstructions.text;
 

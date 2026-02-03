@@ -1,3 +1,5 @@
+export type AgentHealth = 'healthy' | 'stale' | 'disconnected';
+
 export interface Agent {
   instance_id: string;
   port: number;
@@ -7,6 +9,8 @@ export interface Agent {
   capabilities: string[];
   agent_name: string | null;
   connected: boolean;
+  last_heartbeat?: string;
+  health?: AgentHealth;
 }
 
 export interface ActivityEvent {

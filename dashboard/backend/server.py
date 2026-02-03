@@ -10,17 +10,30 @@ FastAPI server that:
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-import uuid
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import websockets
 from websockets.exceptions import ConnectionClosed
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
-app = FastAPI(title="Multi-Agent Dashboard")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Modern lifespan handler for startup/shutdown."""
+    # Startup
+    asyncio.create_task(monitor_registry())
+    asyncio.create_task(heartbeat_monitor())
+    yield
+    # Shutdown (cleanup handled by monitor_registry finally block)
+
+
+app = FastAPI(title="Multi-Agent Dashboard", lifespan=lifespan)
 
 # CORS for development
 app.add_middleware(
@@ -78,9 +91,32 @@ def get_agents_summary() -> list[dict]:
             "capabilities": entry.get("capabilities", []),
             "agent_name": entry.get("agentName"),
             "connected": agent_state.get("connected", False),
+            "last_heartbeat": agent_state.get("last_heartbeat"),
+            "health": agent_state.get("health", "disconnected"),
         })
 
     return result
+
+
+def get_agent_state(instance_id: str) -> dict:
+    """Get the current state of a single agent for delta updates."""
+    registry = read_registry()
+    entry = registry.get(instance_id, {})
+    agent_state = agents.get(instance_id, {})
+    project_path = entry.get("projectPath", "")
+
+    return {
+        "instance_id": instance_id,
+        "port": entry.get("port"),
+        "project_path": project_path,
+        "project_name": project_path.split("/")[-1] if project_path else "Unknown",
+        "role": entry.get("role"),
+        "capabilities": entry.get("capabilities", []),
+        "agent_name": entry.get("agentName"),
+        "connected": agent_state.get("connected", False),
+        "last_heartbeat": agent_state.get("last_heartbeat"),
+        "health": agent_state.get("health", "disconnected"),
+    }
 
 
 async def broadcast_to_dashboards(message: dict):
@@ -100,6 +136,15 @@ async def broadcast_to_dashboards(message: dict):
     for client in disconnected:
         if client in dashboard_clients:
             dashboard_clients.remove(client)
+
+
+async def broadcast_agent_delta(instance_id: str, changes: dict):
+    """Send delta update for a single agent."""
+    await broadcast_to_dashboards({
+        "type": "agent_delta",
+        "instance_id": instance_id,
+        "changes": changes,
+    })
 
 
 def log_activity(event_type: str, port: int, instance_id: str, **data):
@@ -141,9 +186,12 @@ class AgentConnection:
             initial = await asyncio.wait_for(self.ws.recv(), timeout=5)
             config = json.loads(initial)
 
+            now = datetime.now().isoformat()
             agents[self.instance_id] = {
                 "connected": True,
                 "config": config,
+                "last_heartbeat": now,
+                "health": "healthy",
             }
 
             log_activity(
@@ -153,16 +201,18 @@ class AgentConnection:
                 role=self.entry.get("role"),
             )
 
-            await broadcast_to_dashboards({
-                "type": "agents_update",
-                "agents": get_agents_summary(),
+            # Send delta update for this agent
+            await broadcast_agent_delta(self.instance_id, {
+                "connected": True,
+                "health": "healthy",
+                "last_heartbeat": now,
             })
 
             return True
 
         except Exception as e:
             print(f"Failed to connect to agent {self.port}: {e}")
-            agents[self.instance_id] = {"connected": False}
+            agents[self.instance_id] = {"connected": False, "health": "disconnected"}
             return False
 
     async def disconnect(self):
@@ -175,6 +225,25 @@ class AgentConnection:
                 pass
         if self.instance_id in agents:
             agents[self.instance_id]["connected"] = False
+            agents[self.instance_id]["health"] = "disconnected"
+
+    async def heartbeat(self) -> bool:
+        """Send ping and await pong to verify agent is responsive."""
+        if not self.ws or not agents.get(self.instance_id, {}).get("connected"):
+            return False
+
+        try:
+            # WebSocket ping/pong
+            pong_waiter = await self.ws.ping()
+            await asyncio.wait_for(pong_waiter, timeout=5)
+
+            # Update heartbeat timestamp
+            now = datetime.now().isoformat()
+            agents[self.instance_id]["last_heartbeat"] = now
+            agents[self.instance_id]["health"] = "healthy"
+            return True
+        except Exception:
+            return False
 
     async def listen(self):
         """Listen for messages from agent."""
@@ -217,15 +286,16 @@ class AgentConnection:
 
         except ConnectionClosed:
             agents[self.instance_id]["connected"] = False
+            agents[self.instance_id]["health"] = "disconnected"
             log_activity(
                 "agent_disconnected",
                 self.port,
                 self.instance_id,
                 role=self.entry.get("role"),
             )
-            await broadcast_to_dashboards({
-                "type": "agents_update",
-                "agents": get_agents_summary(),
+            await broadcast_agent_delta(self.instance_id, {
+                "connected": False,
+                "health": "disconnected",
             })
 
     async def send_prompt(self, prompt: str) -> dict:
@@ -264,56 +334,159 @@ class AgentConnection:
             return {"error": str(e)}
 
 
-async def monitor_registry():
-    """Monitor registry for agent changes."""
-    known_instances: set[str] = set()
+async def heartbeat_monitor():
+    """Periodically ping all connected agents to check health."""
+    HEARTBEAT_INTERVAL = 10  # seconds
+    STALE_THRESHOLD = 30  # seconds
 
     while True:
-        try:
-            registry = read_registry()
-            current = set(registry.keys())
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
 
-            # New agents
-            for instance_id in current - known_instances:
-                entry = registry[instance_id]
-                port = entry.get("port")
-                if port:
-                    conn = AgentConnection(instance_id, port, entry)
-                    agent_connections[instance_id] = conn
+        for instance_id, conn in list(agent_connections.items()):
+            agent_state = agents.get(instance_id, {})
+            if not agent_state.get("connected"):
+                continue
+
+            # Try heartbeat
+            success = await conn.heartbeat()
+
+            if success:
+                # Agent responded, update health if it was stale
+                if agent_state.get("health") != "healthy":
+                    agents[instance_id]["health"] = "healthy"
+                    await broadcast_agent_delta(instance_id, {"health": "healthy"})
+            else:
+                # Check if agent is stale
+                last_hb = agent_state.get("last_heartbeat")
+                if last_hb:
+                    try:
+                        last_hb_time = datetime.fromisoformat(last_hb)
+                        elapsed = (datetime.now() - last_hb_time).total_seconds()
+                        if elapsed > STALE_THRESHOLD and agent_state.get("health") != "stale":
+                            agents[instance_id]["health"] = "stale"
+                            await broadcast_agent_delta(instance_id, {"health": "stale"})
+                    except Exception:
+                        pass
+
+
+# Global event loop reference for watchdog callback
+_main_loop: Optional[asyncio.AbstractEventLoop] = None
+
+# Known instances tracking (shared between watchdog and fallback)
+_known_instances: set[str] = set()
+_registry_change_event = asyncio.Event()
+
+
+class RegistryWatcher(FileSystemEventHandler):
+    """Watches registry file for changes using watchdog."""
+
+    def __init__(self, registry_path: Path):
+        self.registry_path = registry_path
+
+    def on_modified(self, event):
+        if event.src_path.endswith("registry.json"):
+            # Signal the async handler that registry changed
+            if _main_loop:
+                _main_loop.call_soon_threadsafe(_registry_change_event.set)
+
+    def on_created(self, event):
+        if event.src_path.endswith("registry.json"):
+            if _main_loop:
+                _main_loop.call_soon_threadsafe(_registry_change_event.set)
+
+
+async def handle_registry_change():
+    """Process registry changes (called by watchdog or fallback poll)."""
+    global _known_instances
+
+    try:
+        registry = read_registry()
+        current = set(registry.keys())
+
+        # New agents
+        for instance_id in current - _known_instances:
+            entry = registry[instance_id]
+            port = entry.get("port")
+            if port:
+                conn = AgentConnection(instance_id, port, entry)
+                agent_connections[instance_id] = conn
+                if await conn.connect():
+                    asyncio.create_task(conn.listen())
+
+        # Removed agents
+        for instance_id in _known_instances - current:
+            if instance_id in agent_connections:
+                await agent_connections[instance_id].disconnect()
+                del agent_connections[instance_id]
+            if instance_id in agents:
+                del agents[instance_id]
+            # Notify about agent removal
+            await broadcast_to_dashboards({
+                "type": "agent_removed",
+                "instance_id": instance_id,
+            })
+
+        # Update existing agents' registry data
+        for instance_id in current & _known_instances:
+            if instance_id in agent_connections:
+                conn = agent_connections[instance_id]
+                conn.entry = registry[instance_id]
+
+                # Try reconnecting if disconnected
+                if not agents.get(instance_id, {}).get("connected"):
                     if await conn.connect():
                         asyncio.create_task(conn.listen())
 
-            # Removed agents
-            for instance_id in known_instances - current:
-                if instance_id in agent_connections:
-                    await agent_connections[instance_id].disconnect()
-                    del agent_connections[instance_id]
-                if instance_id in agents:
-                    del agents[instance_id]
+        _known_instances = current
 
-            # Update existing agents' registry data
-            for instance_id in current & known_instances:
-                if instance_id in agent_connections:
-                    conn = agent_connections[instance_id]
-                    conn.entry = registry[instance_id]
+    except Exception as e:
+        print(f"Registry change handler error: {e}")
 
-                    # Try reconnecting if disconnected
-                    if not agents.get(instance_id, {}).get("connected"):
-                        if await conn.connect():
-                            asyncio.create_task(conn.listen())
 
-            if current != known_instances:
-                await broadcast_to_dashboards({
-                    "type": "agents_update",
-                    "agents": get_agents_summary(),
-                })
+async def monitor_registry():
+    """Monitor registry for agent changes using watchdog with fallback polling."""
+    global _main_loop
 
-            known_instances = current
+    _main_loop = asyncio.get_event_loop()
 
-        except Exception as e:
-            print(f"Monitor error: {e}")
+    # Initial scan
+    await handle_registry_change()
 
-        await asyncio.sleep(2)
+    # Setup watchdog observer
+    observer = None
+    registry_dir = REGISTRY_PATH.parent
+
+    try:
+        if registry_dir.exists():
+            watcher = RegistryWatcher(REGISTRY_PATH)
+            observer = Observer()
+            observer.schedule(watcher, str(registry_dir), recursive=False)
+            observer.start()
+            print(f"Watchdog monitoring {registry_dir}")
+    except Exception as e:
+        print(f"Failed to start watchdog: {e}, falling back to polling")
+
+    # Main loop: wait for watchdog events or fallback poll
+    FALLBACK_POLL_INTERVAL = 10  # seconds (longer since watchdog is primary)
+
+    try:
+        while True:
+            # Wait for either watchdog event or timeout (fallback poll)
+            try:
+                await asyncio.wait_for(
+                    _registry_change_event.wait(),
+                    timeout=FALLBACK_POLL_INTERVAL
+                )
+                _registry_change_event.clear()
+            except asyncio.TimeoutError:
+                pass  # Fallback poll on timeout
+
+            await handle_registry_change()
+
+    finally:
+        if observer:
+            observer.stop()
+            observer.join()
 
 
 async def spawn_ide_directly(project_path: str, role: str = None, capabilities: list = None) -> dict:
@@ -424,12 +597,6 @@ async def spawn_via_agent(conn: AgentConnection, project_path: str, role: str = 
     # The listen loop is already consuming messages from the agent connection
     print(f"[SPAWN] spawn_via_agent: using direct spawn for {project_path}")
     return await spawn_ide_directly(project_path, role, capabilities)
-
-
-@app.on_event("startup")
-async def startup():
-    """Start background tasks."""
-    asyncio.create_task(monitor_registry())
 
 
 @app.get("/api/agents")

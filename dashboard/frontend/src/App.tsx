@@ -43,6 +43,7 @@ import { getHierarchicalLayout } from './utils/canvasLayout';
 import { formatErrorForToast } from './utils/errorMessages';
 import { initializeMockData } from './utils/mockData';
 import { getExecutionOrder } from './utils/workflowVariables';
+import { defaultRoleDescriptions, outputTypeInstructions } from './utils/promptBuilder';
 import type { Agent, Instance, TaskQueues, FailureState, OrchestratorEvent, PromptMetrics, PromptBlockNodeData, VariableBinding } from './types';
 
 const nodeTypes: NodeTypes = {
@@ -140,6 +141,22 @@ function AppContent() {
               (data.activity || []).forEach((e: unknown) => addActivity(e as any));
             } else if (data.type === 'agents_update') {
               setAgents(data.agents || []);
+            } else if (data.type === 'agent_delta') {
+              // Delta update: update single agent's changed fields
+              const { instance_id, changes } = data;
+              setAgents((prev: Agent[]) =>
+                prev.map((agent) =>
+                  agent.instance_id === instance_id
+                    ? { ...agent, ...changes }
+                    : agent
+                )
+              );
+            } else if (data.type === 'agent_removed') {
+              // Agent removed from registry
+              const { instance_id } = data;
+              setAgents((prev: Agent[]) =>
+                prev.filter((agent) => agent.instance_id !== instance_id)
+              );
             } else if (data.type === 'activity') {
               addActivity(data.event);
               handleActivityEvent(data.event);
@@ -477,24 +494,8 @@ function AppContent() {
       const outputSchema = nodeData.outputSchema;
       const nodeLabel = nodeData.label || 'Agent';
 
-      // Build role-aware prompt
-      const roleDescriptions: Record<string, string> = {
-        coder: 'You are a software developer. Write clean, efficient code.',
-        reviewer: 'You are a code reviewer. Analyze code for issues, suggest improvements.',
-        tester: 'You are a QA engineer. Write tests and identify edge cases.',
-        architect: 'You are a software architect. Design systems and provide high-level guidance.',
-        docs: 'You are a technical writer. Create clear documentation and explanations.',
-        debugger: 'You are a debugging specialist. Find and fix bugs, diagnose issues.',
-      };
-
-      const outputTypeInstructions: Record<string, string> = {
-        text: 'Respond with plain text.',
-        code: 'Respond with code in a code block (```language).',
-        json: 'Respond with valid JSON only.',
-        markdown: 'Respond with formatted markdown.',
-      };
-
-      const roleContext = `[Role: ${role.toUpperCase()}] ${roleDescriptions[role] || ''}
+      // Build role-aware prompt using centralized config
+      const roleContext = `[Role: ${role.toUpperCase()}] ${defaultRoleDescriptions[role] || ''}
 [Expected Output: ${outputType.toUpperCase()}] ${outputTypeInstructions[outputType] || ''}
 
 `;
