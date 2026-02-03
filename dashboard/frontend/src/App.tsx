@@ -158,6 +158,20 @@ function AppContent() {
               setAgents((prev: Agent[]) =>
                 prev.filter((agent) => agent.instance_id !== instance_id)
               );
+            } else if (data.type === 'agent_added') {
+              // New agent added - add to list or update if exists
+              const newAgent = data.agent as Agent;
+              setAgents((prev: Agent[]) => {
+                const exists = prev.some((a) => a.instance_id === newAgent.instance_id);
+                if (exists) {
+                  // Update existing agent
+                  return prev.map((a) =>
+                    a.instance_id === newAgent.instance_id ? newAgent : a
+                  );
+                }
+                // Add new agent
+                return [...prev, newAgent];
+              });
             } else if (data.type === 'activity') {
               addActivity(data.event);
               handleActivityEvent(data.event);

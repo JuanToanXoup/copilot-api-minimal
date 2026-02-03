@@ -66,7 +66,16 @@ class AgentConnection:
                 role=self.entry.get("role"),
             )
 
-            await self.manager.broadcast.broadcast_agent_delta(self.instance_id, {
+            # Broadcast full agent data so new agents appear in dashboard
+            project_path = self.entry.get("projectPath", "")
+            await self.manager.broadcast.broadcast_agent_added({
+                "instance_id": self.instance_id,
+                "port": self.port,
+                "project_path": project_path,
+                "project_name": project_path.split("/")[-1] if project_path else "Unknown",
+                "role": self.entry.get("role"),
+                "capabilities": self.entry.get("capabilities", []),
+                "agent_name": self.entry.get("agentName"),
                 "connected": True,
                 "health": "healthy",
                 "last_heartbeat": now,
