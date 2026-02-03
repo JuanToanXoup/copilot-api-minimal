@@ -1112,7 +1112,6 @@ function PromptEditor({
     });
   };
 
-  // Extract variables from template
   // Extract variables from template - supports both {{variable}} and $VARIABLE formats
   const variables = useMemo(() => {
     const mustacheMatches = promptTemplate.match(/\{\{(\w+)\}\}/g) || [];
