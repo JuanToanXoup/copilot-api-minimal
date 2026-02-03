@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { GitBranch, Activity, Server } from 'lucide-react';
+import { GitBranch, Activity, Server, FileText } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '../store';
 import type { ViewMode } from '../types';
@@ -12,6 +12,12 @@ interface ViewModeOption {
 }
 
 const viewModeOptions: ViewModeOption[] = [
+  {
+    mode: 'prompts',
+    label: 'Prompts',
+    icon: FileText,
+    description: 'Manage prompt templates',
+  },
   {
     mode: 'workflow',
     label: 'Workflow',
@@ -35,17 +41,20 @@ const viewModeOptions: ViewModeOption[] = [
 export default function ViewModeToggle() {
   const { viewMode, setViewMode } = useStore();
 
-  // Keyboard shortcuts: Cmd/Ctrl + 1/2/3
+  // Keyboard shortcuts: Cmd/Ctrl + 1/2/3/4
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) {
         if (e.key === '1') {
           e.preventDefault();
-          setViewMode('workflow');
+          setViewMode('prompts');
         } else if (e.key === '2') {
           e.preventDefault();
-          setViewMode('agents');
+          setViewMode('workflow');
         } else if (e.key === '3') {
+          e.preventDefault();
+          setViewMode('agents');
+        } else if (e.key === '4') {
           e.preventDefault();
           setViewMode('monitoring');
         }

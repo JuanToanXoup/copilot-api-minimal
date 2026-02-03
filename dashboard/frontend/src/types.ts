@@ -140,7 +140,7 @@ export interface PromptMetrics {
 }
 
 // View Mode
-export type ViewMode = 'workflow' | 'monitoring' | 'agents';
+export type ViewMode = 'prompts' | 'workflow' | 'monitoring' | 'agents';
 
 // =====================
 // Prompt Registry (Postman Flows Pattern)
@@ -154,6 +154,8 @@ export interface PromptTemplate {
   id: string;
   name: string;
   description?: string;
+  // Category for organizing prompts
+  category?: string;
   // The prompt template with {{variable}} placeholders
   template: string;
   // Output extraction configuration
