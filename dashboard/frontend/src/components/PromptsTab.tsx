@@ -61,7 +61,7 @@ export default function PromptsTab() {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['__root__']));
   const [editingFolder, setEditingFolder] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
-  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [creatingFolderIn, setCreatingFolderIn] = useState<string | null>(null); // null = root, string = parent folder
   const [folderMenuOpen, setFolderMenuOpen] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null); // For creating prompts in folder
 
@@ -606,64 +606,11 @@ export default function PromptsTab() {
           </div>
         </div>
 
-        {/* Folder Actions */}
-        <div className="px-4 py-2 border-b border-slate-200 flex items-center gap-2">
-          {isCreatingFolder ? (
-            <div className="flex-1 flex items-center gap-2">
-              <input
-                type="text"
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newFolderName.trim()) {
-                    createFolder(newFolderName.trim());
-                    setNewFolderName('');
-                    setIsCreatingFolder(false);
-                  } else if (e.key === 'Escape') {
-                    setNewFolderName('');
-                    setIsCreatingFolder(false);
-                  }
-                }}
-                placeholder="Folder name..."
-                autoFocus
-                className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              />
-              <button
-                onClick={() => {
-                  if (newFolderName.trim()) {
-                    createFolder(newFolderName.trim());
-                    setNewFolderName('');
-                    setIsCreatingFolder(false);
-                  }
-                }}
-                className="px-2 py-1 bg-indigo-500 text-white rounded text-sm hover:bg-indigo-600"
-              >
-                Create
-              </button>
-              <button
-                onClick={() => {
-                  setNewFolderName('');
-                  setIsCreatingFolder(false);
-                }}
-                className="px-2 py-1 text-slate-500 hover:text-slate-700 text-sm"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <>
-              <button
-                onClick={() => setIsCreatingFolder(true)}
-                className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200"
-              >
-                <FolderPlus className="w-3.5 h-3.5" />
-                New Folder
-              </button>
-              <span className="text-xs text-slate-400">
-                {folders.length} folder{folders.length !== 1 ? 's' : ''}, {promptTemplates.length} prompt{promptTemplates.length !== 1 ? 's' : ''}
-              </span>
-            </>
-          )}
+        {/* Stats bar */}
+        <div className="px-4 py-2 border-b border-slate-200 flex items-center justify-between">
+          <span className="text-xs text-slate-400">
+            {folders.length} folder{folders.length !== 1 ? 's' : ''}, {promptTemplates.length} prompt{promptTemplates.length !== 1 ? 's' : ''}
+          </span>
         </div>
 
         {/* Prompt List with Folders */}
@@ -674,22 +621,106 @@ export default function PromptsTab() {
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, null)}
           >
-            <button
-              onClick={() => toggleFolder('__root__')}
+            {/* Inline folder creation input */}
+            {creatingFolderIn === '__root__' && (
+              <div className="px-4 py-2 border-b border-slate-100 bg-indigo-50 flex items-center gap-2">
+                <FolderPlus className="w-3.5 h-3.5 text-indigo-500" />
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newFolderName.trim()) {
+                      createFolder(newFolderName.trim());
+                      setNewFolderName('');
+                      setCreatingFolderIn(null);
+                    } else if (e.key === 'Escape') {
+                      setNewFolderName('');
+                      setCreatingFolderIn(null);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (!newFolderName.trim()) {
+                      setCreatingFolderIn(null);
+                    }
+                  }}
+                  placeholder="Folder name..."
+                  autoFocus
+                  className="flex-1 px-2 py-1 border border-indigo-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+                <button
+                  onClick={() => {
+                    if (newFolderName.trim()) {
+                      createFolder(newFolderName.trim());
+                      setNewFolderName('');
+                      setCreatingFolderIn(null);
+                    }
+                  }}
+                  className="px-2 py-1 bg-indigo-500 text-white rounded text-xs hover:bg-indigo-600"
+                >
+                  Create
+                </button>
+              </div>
+            )}
+            <div
               className={clsx(
-                'w-full px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-100 transition-colors',
+                'w-full px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-100 group transition-colors',
                 dragOverFolder === '__root__' && 'bg-indigo-100 border-indigo-300'
               )}
             >
-              {expandedFolders.has('__root__') ? (
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-              )}
-              <FolderOpen className="w-3.5 h-3.5 text-amber-500" />
-              <span className="text-xs font-medium text-slate-600">Root</span>
-              <span className="text-xs text-slate-400">({groupedByFolder['__root__']?.length || 0})</span>
-            </button>
+              <button
+                onClick={() => toggleFolder('__root__')}
+                className="flex items-center gap-2 flex-1 text-left"
+              >
+                {expandedFolders.has('__root__') ? (
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                )}
+                <FolderOpen className="w-3.5 h-3.5 text-amber-500" />
+                <span className="text-xs font-medium text-slate-600">Root</span>
+                <span className="text-xs text-slate-400">({groupedByFolder['__root__']?.length || 0})</span>
+              </button>
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFolderMenuOpen(folderMenuOpen === '__root__' ? null : '__root__');
+                  }}
+                  className="p-1 rounded hover:bg-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <MoreVertical className="w-3.5 h-3.5 text-slate-400" />
+                </button>
+                {folderMenuOpen === '__root__' && (
+                  <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 py-1 min-w-[140px]">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedFolder(null);
+                        setIsCreating(true);
+                        setSelectedPrompt(null);
+                        setFolderMenuOpen(null);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      New Prompt
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCreatingFolderIn('__root__');
+                        setFolderMenuOpen(null);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <FolderPlus className="w-3.5 h-3.5" />
+                      New Folder
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
             {expandedFolders.has('__root__') &&
               groupedByFolder['__root__']?.map((prompt) => (
                 <div
@@ -803,6 +834,18 @@ export default function PromptsTab() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          setCreatingFolderIn(folder.name);
+                          setExpandedFolders((prev) => new Set([...prev, folder.name]));
+                          setFolderMenuOpen(null);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <FolderPlus className="w-3.5 h-3.5" />
+                        New Folder
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setEditingFolder(folder.name);
                           setFolderMenuOpen(null);
                         }}
@@ -826,34 +869,78 @@ export default function PromptsTab() {
                   )}
                 </div>
               </div>
-              {expandedFolders.has(folder.name) &&
-                groupedByFolder[folder.name]?.map((prompt) => (
-                  <div
-                    key={prompt.id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, prompt.id, folder.name)}
-                    onDragEnd={handleDragEnd}
-                    onClick={() => {
-                      setSelectedPrompt(prompt);
-                      setIsCreating(false);
-                    }}
-                    className={clsx(
-                      'w-full pl-12 pr-4 py-2.5 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-grab active:cursor-grabbing',
-                      selectedPrompt?.id === prompt.id && 'bg-indigo-50 border-l-2 border-l-indigo-500',
-                      draggedPrompt?.id === prompt.id && 'opacity-50'
-                    )}
-                  >
-                    <div className="flex items-start gap-2">
-                      <FileText className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-sm text-slate-800 truncate">{prompt.name}</div>
-                        {prompt.description && (
-                          <div className="text-xs text-slate-500 truncate mt-0.5">{prompt.description}</div>
-                        )}
+              {expandedFolders.has(folder.name) && (
+                <>
+                  {/* Inline subfolder creation */}
+                  {creatingFolderIn === folder.name && (
+                    <div className="pl-8 pr-4 py-2 border-b border-slate-100 bg-indigo-50 flex items-center gap-2">
+                      <FolderPlus className="w-3.5 h-3.5 text-indigo-500" />
+                      <input
+                        type="text"
+                        value={newFolderName}
+                        onChange={(e) => setNewFolderName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && newFolderName.trim()) {
+                            createFolder(newFolderName.trim());
+                            setNewFolderName('');
+                            setCreatingFolderIn(null);
+                          } else if (e.key === 'Escape') {
+                            setNewFolderName('');
+                            setCreatingFolderIn(null);
+                          }
+                        }}
+                        onBlur={() => {
+                          if (!newFolderName.trim()) {
+                            setCreatingFolderIn(null);
+                          }
+                        }}
+                        placeholder="Folder name..."
+                        autoFocus
+                        className="flex-1 px-2 py-1 border border-indigo-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                      />
+                      <button
+                        onClick={() => {
+                          if (newFolderName.trim()) {
+                            createFolder(newFolderName.trim());
+                            setNewFolderName('');
+                            setCreatingFolderIn(null);
+                          }
+                        }}
+                        className="px-2 py-1 bg-indigo-500 text-white rounded text-xs hover:bg-indigo-600"
+                      >
+                        Create
+                      </button>
+                    </div>
+                  )}
+                  {groupedByFolder[folder.name]?.map((prompt) => (
+                    <div
+                      key={prompt.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, prompt.id, folder.name)}
+                      onDragEnd={handleDragEnd}
+                      onClick={() => {
+                        setSelectedPrompt(prompt);
+                        setIsCreating(false);
+                      }}
+                      className={clsx(
+                        'w-full pl-12 pr-4 py-2.5 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-grab active:cursor-grabbing',
+                        selectedPrompt?.id === prompt.id && 'bg-indigo-50 border-l-2 border-l-indigo-500',
+                        draggedPrompt?.id === prompt.id && 'opacity-50'
+                      )}
+                    >
+                      <div className="flex items-start gap-2">
+                        <FileText className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-sm text-slate-800 truncate">{prompt.name}</div>
+                          {prompt.description && (
+                            <div className="text-xs text-slate-500 truncate mt-0.5">{prompt.description}</div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </>
+              )}
             </div>
           ))}
 
