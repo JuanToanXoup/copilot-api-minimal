@@ -45,6 +45,7 @@ import { getHierarchicalLayout } from './utils/canvasLayout';
 import { formatErrorForToast } from './utils/errorMessages';
 import { initializeMockData } from './utils/mockData';
 import { getExecutionOrder } from './utils/workflowVariables';
+import { loadPrompts } from './services/promptService';
 import type { Agent, Instance, TaskQueues, FailureState, OrchestratorEvent, PromptMetrics, PromptBlockNodeData, VariableBinding } from './types';
 
 const nodeTypes: NodeTypes = {
@@ -91,6 +92,8 @@ function AppContent() {
     addEvent,
     setPromptMetrics,
     getPromptTemplateById,
+    setPromptTemplates,
+    activeProjectPath,
   } = useStore();
   const { fitView } = useReactFlow();
 
@@ -105,6 +108,21 @@ function AppContent() {
       setViewMode,
     });
   }, []);
+
+  // Load prompts on initialization and when project changes
+  useEffect(() => {
+    const fetchPrompts = async () => {
+      try {
+        const prompts = await loadPrompts(activeProjectPath);
+        if (prompts.length > 0) {
+          setPromptTemplates(prompts);
+        }
+      } catch (error) {
+        console.error('Failed to load prompts:', error);
+      }
+    };
+    fetchPrompts();
+  }, [activeProjectPath, setPromptTemplates]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [workflowStatus, setWorkflowStatus] = useState<'idle' | 'running' | 'complete'>('idle');
