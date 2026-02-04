@@ -1551,53 +1551,39 @@ function AppContent() {
         {viewMode === 'prompts' && <PromptsTab />}
 
         {viewMode === 'workflow' && (
-          <>
-            {/* Left sidebar: Workflow Templates */}
-            <div className="w-72 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden shadow-sm">
-              <div className="flex-1 overflow-y-auto">
-                <div className="p-4">
-                  <TemplateSelector
-                    selectedTemplate={selectedTemplate}
-                    onSelectTemplate={handleSelectTemplate}
-                  />
+          <div className="flex-1 flex relative">
+            {/* Canvas area */}
+            <div className="flex-1 relative">
+              {/* Top toolbar */}
+              <div className="absolute top-4 left-4 right-4 z-10">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <TemplateSelector
+                      selectedTemplate={selectedTemplate}
+                      onSelectTemplate={handleSelectTemplate}
+                    />
+                    <NodePalette onAddNode={handleAddNode} />
+                  </div>
+                  <div className="bg-white rounded-lg shadow-sm border border-slate-200 flex items-center">
+                    <div className="px-3 py-1.5 border-r border-slate-200">
+                      <FlowManager
+                        nodes={nodes}
+                        edges={edges}
+                        selectedTemplate={selectedTemplate}
+                        onLoadFlow={handleLoadFlow}
+                      />
+                    </div>
+                    <button
+                      onClick={handleAutoArrange}
+                      className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-slate-50 transition-colors text-sm text-slate-600"
+                      title="Auto-arrange nodes"
+                    >
+                      <LayoutGrid className="w-4 h-4" />
+                      <span>Auto Layout</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-
-            <div className="flex-1 flex relative">
-              {/* Canvas area */}
-              <div className="flex-1 relative">
-                {/* Top toolbar */}
-                <div className="absolute top-4 left-4 right-4 z-10 flex flex-col gap-2">
-                  {/* Flow Manager and Auto-arrange */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200">
-                        <FlowManager
-                          nodes={nodes}
-                          edges={edges}
-                          selectedTemplate={selectedTemplate}
-                          onLoadFlow={handleLoadFlow}
-                        />
-                      </div>
-                      <button
-                        onClick={handleAutoArrange}
-                        className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors text-sm text-slate-600"
-                        title="Auto-arrange nodes"
-                      >
-                        <LayoutGrid className="w-4 h-4" />
-                        <span>Auto Layout</span>
-                      </button>
-                    </div>
-                  </div>
-                  {/* Node Palette - drag or click to add nodes */}
-                  <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-slate-200">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Add Node:</span>
-                      <NodePalette onAddNode={handleAddNode} />
-                    </div>
-                  </div>
-                </div>
 
                 <ReactFlow
                   nodes={nodes}
@@ -1618,16 +1604,15 @@ function AppContent() {
                 </ReactFlow>
               </div>
 
-              {/* Block Editor Panel */}
-              {selectedNode && (
-                <BlockEditor
-                  node={selectedNode}
-                  onClose={() => setSelectedNodeId(null)}
-                  onUpdateNode={handleUpdateNodeData}
-                />
-              )}
-            </div>
-          </>
+            {/* Block Editor Panel */}
+            {selectedNode && (
+              <BlockEditor
+                node={selectedNode}
+                onClose={() => setSelectedNodeId(null)}
+                onUpdateNode={handleUpdateNodeData}
+              />
+            )}
+          </div>
         )}
 
         {viewMode === 'agents' && (

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import {
   Globe,
   GitBranch,
@@ -8,6 +8,8 @@ import {
   FileOutput,
   Play,
   FileText,
+  Plus,
+  ChevronDown,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -137,6 +139,26 @@ interface NodePaletteProps {
 }
 
 function NodePalette({ onAddNode }: NodePaletteProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
   const handleDragStart = (
     event: React.DragEvent,
     nodeType: string,
@@ -149,28 +171,76 @@ function NodePalette({ onAddNode }: NodePaletteProps) {
     event.dataTransfer.effectAllowed = 'move';
   };
 
+  const handleAddNode = (type: string, data: Record<string, unknown>) => {
+    onAddNode(type, data);
+    setIsOpen(false);
+  };
+
   return (
-    <div className="flex items-center gap-1">
-      {nodeTypeConfigs.map((config) => {
-        const Icon = config.icon;
-        return (
-          <button
-            key={config.type}
-            draggable
-            onDragStart={(e) => handleDragStart(e, config.type, config.defaultData)}
-            onClick={() => onAddNode(config.type, config.defaultData)}
-            className={clsx(
-              'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-grab active:cursor-grabbing',
-              config.bgColor,
-              config.color
-            )}
-            title={config.description}
-          >
-            <Icon className="w-3.5 h-3.5" />
-            <span>{config.label}</span>
-          </button>
-        );
-      })}
+    <div ref={containerRef} className="relative">
+      {/* Trigger Button */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={clsx(
+          'flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-sm',
+          'hover:border-emerald-400 hover:bg-emerald-50',
+          isOpen ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'
+        )}
+      >
+        <Plus className="w-4 h-4 text-emerald-500" />
+        <span className="text-slate-700 font-medium">Add Node</span>
+        <ChevronDown className={clsx(
+          'w-4 h-4 text-slate-400 transition-transform',
+          isOpen && 'rotate-180'
+        )} />
+      </button>
+
+      {/* Dropdown Panel */}
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
+          <div className="p-2 border-b border-slate-100">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+              Node Types
+            </span>
+          </div>
+          <div className="max-h-[400px] overflow-y-auto p-2 space-y-1">
+            {nodeTypeConfigs.map((config) => {
+              const Icon = config.icon;
+              return (
+                <button
+                  key={config.type}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, config.type, config.defaultData)}
+                  onClick={() => handleAddNode(config.type, config.defaultData)}
+                  className={clsx(
+                    'w-full text-left px-3 py-2 rounded-lg transition-all cursor-grab active:cursor-grabbing',
+                    'hover:bg-slate-50 border border-transparent hover:border-slate-200'
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={clsx('p-1.5 rounded-md border', config.bgColor)}>
+                      <Icon className={clsx('w-4 h-4', config.color)} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-700">
+                        {config.label}
+                      </div>
+                      <div className="text-xs text-slate-500 truncate">
+                        {config.description}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="p-2 border-t border-slate-100 bg-slate-50">
+            <p className="text-[10px] text-slate-400">
+              Click to add or drag onto canvas
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
