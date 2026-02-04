@@ -189,7 +189,18 @@ class YAMLWorkflowConverter:
         return node_id
 
     def _process_condition(self, ctx: ConversionContext, step: dict, prev_id: str, path: str) -> str:
-        """Process an if/elif/else condition."""
+        """Process an if/elif/else condition.
+
+        Supports elif as a list of condition branches:
+        - if: "condition1"
+          then: [...]
+          elif:
+            - when: "condition2"
+              then: [...]
+            - when: "condition3"
+              then: [...]
+          else: [...]
+        """
         condition_expr = step["if"]
         variable, operator, value = self._parse_condition_expr(condition_expr)
 
@@ -224,39 +235,87 @@ class YAMLWorkflowConverter:
                     last_then = self._process_step(ctx, s, last_then, f"{path}.then[{i}]")
             branch_endpoints.append(last_then)
 
-        # Process 'elif' branches (converted to nested conditions in false branch)
-        elif_conditions = []
-        i = 0
-        while f"elif" in step or (i == 0 and "elif" in step):
-            # Handle multiple elif by looking for elif, elif_1, elif_2, etc. or repeated elif keys
-            # Since YAML doesn't support duplicate keys, we handle elif as a special case
-            break  # For now, handle elif through the step structure
-
-        # Check for elif in the step (as a list pattern)
-        if "elif" in step:
-            # elif creates a nested condition in the false branch
-            elif_expr = step["elif"]
-            elif_then = step.get("then", [])  # This would be ambiguous, need different structure
-
-        # Process 'else' branch (false)
+        # Process 'elif' branches as nested conditions
+        elif_branches = step.get("elif", [])
         else_steps = step.get("else", [])
-        if else_steps:
-            last_else = node_id
-            for i, s in enumerate(else_steps):
-                if i == 0:
-                    next_id = self._process_step(ctx, s, last_else, f"{path}.else[{i}]")
-                    for e in ctx.edges:
-                        if e["source"] == node_id and e["target"] == next_id:
-                            e["sourceHandle"] = "false"
-                            break
-                    last_else = next_id
-                else:
-                    last_else = self._process_step(ctx, s, last_else, f"{path}.else[{i}]")
-            branch_endpoints.append(last_else)
 
-        # If no else branch, condition node itself is an endpoint
-        if not else_steps:
-            branch_endpoints.append(node_id)
+        if elif_branches:
+            # Chain elif conditions off the false branch
+            current_false_source = node_id
+            first_elif = True
+
+            for i, elif_branch in enumerate(elif_branches):
+                elif_expr = elif_branch.get("when", "true")
+                elif_then = elif_branch.get("then", [])
+
+                # Create condition node for this elif
+                elif_var, elif_op, elif_val = self._parse_condition_expr(elif_expr)
+                elif_node_id = self._add_node(ctx, "condition", elif_expr, {
+                    "label": f"Elif {self._simplify_condition_label(elif_expr)}",
+                    "variable": elif_var,
+                    "operator": elif_op,
+                    "value": elif_val,
+                    "status": "idle",
+                })
+
+                # Connect from previous condition's false branch
+                self._add_edge(ctx, current_false_source, elif_node_id,
+                              source_handle="false" if first_elif or current_false_source != node_id else None)
+                first_elif = False
+
+                # Process elif's true branch
+                if elif_then:
+                    last_elif_then = elif_node_id
+                    for j, s in enumerate(elif_then):
+                        if j == 0:
+                            next_id = self._process_step(ctx, s, last_elif_then, f"{path}.elif[{i}].then[{j}]")
+                            for e in ctx.edges:
+                                if e["source"] == elif_node_id and e["target"] == next_id:
+                                    e["sourceHandle"] = "true"
+                                    break
+                            last_elif_then = next_id
+                        else:
+                            last_elif_then = self._process_step(ctx, s, last_elif_then, f"{path}.elif[{i}].then[{j}]")
+                    branch_endpoints.append(last_elif_then)
+
+                # Next elif chains off this one's false
+                current_false_source = elif_node_id
+
+            # Process final else (chains off last elif's false)
+            if else_steps:
+                last_else = current_false_source
+                for i, s in enumerate(else_steps):
+                    if i == 0:
+                        next_id = self._process_step(ctx, s, last_else, f"{path}.else[{i}]")
+                        for e in ctx.edges:
+                            if e["source"] == current_false_source and e["target"] == next_id:
+                                e["sourceHandle"] = "false"
+                                break
+                        last_else = next_id
+                    else:
+                        last_else = self._process_step(ctx, s, last_else, f"{path}.else[{i}]")
+                branch_endpoints.append(last_else)
+            else:
+                # Last elif's false goes nowhere - add as pending
+                branch_endpoints.append(current_false_source)
+        else:
+            # No elif - process else directly from main condition
+            if else_steps:
+                last_else = node_id
+                for i, s in enumerate(else_steps):
+                    if i == 0:
+                        next_id = self._process_step(ctx, s, last_else, f"{path}.else[{i}]")
+                        for e in ctx.edges:
+                            if e["source"] == node_id and e["target"] == next_id:
+                                e["sourceHandle"] = "false"
+                                break
+                        last_else = next_id
+                    else:
+                        last_else = self._process_step(ctx, s, last_else, f"{path}.else[{i}]")
+                branch_endpoints.append(last_else)
+            else:
+                # No else - condition false goes to next node
+                branch_endpoints.append(node_id)
 
         # Store additional endpoints for later connection
         if len(branch_endpoints) > 1:

@@ -82,17 +82,15 @@ workflow:
   then:
     - prompt: "Fix Locator"
       template: locator-fix
-
-  elif: "{{errorType}} == 'timeout'"
-  then:
-    - prompt: "Fix Timeout"
-      template: timeout-fix
-
-  elif: "{{errorType}} == 'data_mismatch'"
-  then:
-    - prompt: "Fix Data"
-      template: data-fix
-
+  elif:
+    - when: "{{errorType}} == 'timeout'"
+      then:
+        - prompt: "Fix Timeout"
+          template: timeout-fix
+    - when: "{{errorType}} == 'data_mismatch'"
+      then:
+        - prompt: "Fix Data"
+          template: data-fix
   else:
     - prompt: "Generic Fix"
       template: generic-fix
@@ -266,41 +264,42 @@ workflow:
         - aggregate: "Combine Locator Analysis"
           strategy: merge
 
-      elif: "{{errorContext.errorType}} == 'data_mismatch'"
-      then:
-        - prompt: "Locate Test Data Files"
-          template: find-test-data
-          input: "{{scenarioAnalysis}}"
-          agent: DataAnalyzer
-          output: dataFiles
+      elif:
+        - when: "{{errorContext.errorType}} == 'data_mismatch'"
+          then:
+            - prompt: "Locate Test Data Files"
+              template: find-test-data
+              input: "{{scenarioAnalysis}}"
+              agent: DataAnalyzer
+              output: dataFiles
 
-        - prompt: "Analyze Data Bindings"
-          template: analyze-data-bindings
-          input: "{{dataFiles}}"
-          agent: DataAnalyzer
-          output: dataBindings
+            - prompt: "Analyze Data Bindings"
+              template: analyze-data-bindings
+              input: "{{dataFiles}}"
+              agent: DataAnalyzer
+              output: dataBindings
 
-        - prompt: "Validate Test Data"
-          template: validate-test-data
-          input: "{{dataBindings}}"
-          agent: DataAnalyzer
+            - prompt: "Validate Test Data"
+              template: validate-test-data
+              input: "{{dataBindings}}"
+              agent: DataAnalyzer
 
-      elif: "{{errorContext.errorType}} == 'timeout'"
-      then:
-        - parallel:
-            - branch:
-                - prompt: "Check Wait Strategies"
-                  template: analyze-waits
-                  input: "{{stepDefinition}}"
-                  agent: EnvChecker
+        - when: "{{errorContext.errorType}} == 'timeout'"
+          then:
+            - parallel:
+                - branch:
+                    - prompt: "Check Wait Strategies"
+                      template: analyze-waits
+                      input: "{{stepDefinition}}"
+                      agent: EnvChecker
 
-            - branch:
-                - prompt: "Check Runner Config"
-                  template: analyze-runner-config
-                  agent: EnvChecker
+                - branch:
+                    - prompt: "Check Runner Config"
+                      template: analyze-runner-config
+                      agent: EnvChecker
 
-        - aggregate: "Combine Env Analysis"
-          strategy: merge
+            - aggregate: "Combine Env Analysis"
+              strategy: merge
 
       else:
         - prompt: "Analyze Assertion Logic"
