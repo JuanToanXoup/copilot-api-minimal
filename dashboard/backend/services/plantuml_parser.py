@@ -75,7 +75,7 @@ class PlantUMLParser:
     NOTE_END_PATTERN = re.compile(r"^end\s+note$", re.MULTILINE)
     IF_PATTERN = re.compile(r"^if\s*\((.+)\?\)\s*then\s*\(([^)]*)\)$", re.MULTILINE)
     ELSE_PATTERN = re.compile(r"^else\s*\(([^)]*)\)$", re.MULTILINE)
-    ELSEIF_PATTERN = re.compile(r"^elseif\s*\((.+)\?\)\s*then\s*\(([^)]*)\)$", re.MULTILINE)
+    ELSEIF_PATTERN = re.compile(r"^else\s*if\s*\(([^)]+)\)\s*then(?:\s*\(([^)]*)\))?$", re.MULTILINE)
     ENDIF_PATTERN = re.compile(r"^endif$", re.MULTILINE)
     FORK_PATTERN = re.compile(r"^fork$", re.MULTILINE)
     FORK_AGAIN_PATTERN = re.compile(r"^fork\s+again$", re.MULTILINE)
@@ -541,10 +541,14 @@ class PlantUMLParser:
 
         return routes
 
-    def _parse_condition(self, lines: list[str], start_idx: int, current_swimlane: str | None) -> tuple[ParsedCondition, int]:
+    def _parse_condition(self, lines: list[str], start_idx: int, current_swimlane: str | None, is_elseif: bool = False) -> tuple[ParsedCondition, int]:
         """Parse an if/else/endif block."""
-        if_match = self.IF_PATTERN.match(lines[start_idx])
-        expression = if_match.group(1).strip()
+        if is_elseif:
+            elseif_match = self.ELSEIF_PATTERN.match(lines[start_idx])
+            expression = elseif_match.group(1).strip()
+        else:
+            if_match = self.IF_PATTERN.match(lines[start_idx])
+            expression = if_match.group(1).strip()
 
         # Parse condition expression
         variable, operator, value = self._parse_condition_expression(expression)
@@ -579,10 +583,18 @@ class PlantUMLParser:
                 i += 1
                 continue
 
-            # Elseif (treat as nested condition in false branch)
-            if self.ELSEIF_PATTERN.match(line):
-                nested_condition, end_idx = self._parse_condition(lines, i, swimlane)
+            # Elseif - switch to false branch and create nested condition
+            elseif_match = self.ELSEIF_PATTERN.match(line)
+            if elseif_match:
+                # Parse the elseif as a nested condition in the false branch
+                # The nested condition will return at the next elseif/else/endif
+                nested_condition, end_idx = self._parse_condition(lines, i, swimlane, is_elseif=True)
                 condition.false_branch.append(nested_condition)
+                # If the nested condition ended at endif, we should also return
+                # (else if chains share the same endif)
+                if self.ENDIF_PATTERN.match(lines[end_idx]):
+                    return condition, end_idx
+                # Otherwise continue from where the nested condition stopped
                 i = end_idx + 1
                 continue
 
