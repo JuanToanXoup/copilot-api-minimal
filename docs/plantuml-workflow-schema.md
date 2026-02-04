@@ -90,9 +90,11 @@ note right
   agent: Analyzer
   input: {{code}}
   output: analysis
-  expectedOutput: JSON with issues array and suggestions array
-  outputMode: json
-  outputSchema: {"issues": [], "suggestions": []}
+  expectedOutput: {
+    "issues": ["string"],
+    "suggestions": ["string"],
+    "severity": "low | medium | high"
+  }
 end note
 ```
 
@@ -104,10 +106,9 @@ end note
 | `agent` | No | Agent role/ID (overrides swimlane if specified) |
 | `input` | Yes | Input variable(s) using `{{variable}}` or `$VARIABLE` syntax |
 | `output` | Yes | Output variable name for downstream reference |
-| `expectedOutput` | No | Description of expected output format/content |
-| `outputMode` | No | Extraction mode: `full`, `json`, `jsonpath`, `regex`, `first_line` (default: `full`) |
+| `expectedOutput` | Yes | JSON object defining the expected output structure |
+| `outputMode` | No | Extraction mode: `full`, `json`, `jsonpath`, `regex`, `first_line` (default: `json`) |
 | `outputPattern` | No | Pattern for `jsonpath` or `regex` extraction modes |
-| `outputSchema` | No | Expected JSON schema for validation |
 | `retries` | No | Number of retry attempts on failure (default: 2) |
 | `timeout` | No | Timeout in seconds (default: 120) |
 
@@ -135,10 +136,13 @@ note right
     Review this code for obvious issues:
     {{code}}
 
-    Respond with: OK or list issues.
+    Respond as JSON.
   input: {{code}}
   output: quickCheck
-  outputMode: first_line
+  expectedOutput: {
+    "status": "ok | issues_found",
+    "issues": ["string"]
+  }
 end note
 ```
 
@@ -152,12 +156,11 @@ interface PromptTemplate {
   name: string;                  // Display name
   description?: string;          // What the prompt does
   template: string;              // The prompt with {{variables}}
-  expectedOutput?: string;       // Description of expected output
+  expectedOutput: object;        // JSON schema defining expected output structure
   outputExtraction: {
     mode: 'full' | 'json' | 'jsonpath' | 'regex' | 'first_line';
     pattern?: string;            // For jsonpath/regex
     outputName: string;          // Variable name for output
-    schema?: object;             // JSON schema for validation
   };
 }
 ```
