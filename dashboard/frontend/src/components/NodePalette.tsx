@@ -203,7 +203,7 @@ function NodePalette({ onAddNode }: NodePaletteProps) {
               Node Types
             </span>
           </div>
-          <div className="max-h-[400px] overflow-y-auto p-2 space-y-1">
+          <div className="p-2 space-y-1">
             {nodeTypeConfigs.map((config) => {
               const Icon = config.icon;
               return (
