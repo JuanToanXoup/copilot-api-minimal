@@ -90,7 +90,7 @@ note right
   agent: Analyzer
   input: {{code}}
   output: analysis
-  expectedOutput: {
+  outputSchema: {
     "issues": ["string"],
     "suggestions": ["string"],
     "severity": "low | medium | high"
@@ -106,7 +106,7 @@ end note
 | `agent` | No | Agent role/ID (overrides swimlane if specified) |
 | `input` | Yes | Input variable(s) using `{{variable}}` or `$VARIABLE` syntax |
 | `output` | Yes | Output variable name for downstream reference |
-| `expectedOutput` | Yes | JSON object defining the expected output structure |
+| `outputSchema` | Yes | JSON object defining the expected output structure |
 | `outputMode` | No | Extraction mode: `full`, `json`, `jsonpath`, `regex`, `first_line` (default: `json`) |
 | `outputPattern` | No | Pattern for `jsonpath` or `regex` extraction modes |
 | `retries` | No | Number of retry attempts on failure (default: 2) |
@@ -139,7 +139,7 @@ note right
     Respond as JSON.
   input: {{code}}
   output: quickCheck
-  expectedOutput: {
+  outputSchema: {
     "status": "ok | issues_found",
     "issues": ["string"]
   }
@@ -156,7 +156,7 @@ interface PromptTemplate {
   name: string;                  // Display name
   description?: string;          // What the prompt does
   template: string;              // The prompt with {{variables}}
-  expectedOutput: object;        // JSON schema defining expected output structure
+  outputSchema: object;        // JSON schema defining expected output structure
   outputExtraction: {
     mode: 'full' | 'json' | 'jsonpath' | 'regex' | 'first_line';
     pattern?: string;            // For jsonpath/regex
