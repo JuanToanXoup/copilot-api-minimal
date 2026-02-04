@@ -25,6 +25,7 @@ import RouterNode from './components/RouterNode';
 import AggregatorNode from './components/AggregatorNode';
 import EvaluatorNode from './components/EvaluatorNode';
 import ConditionNode from './components/ConditionNode';
+import HttpRequestNode from './components/HttpRequestNode';
 import PromptBlockNode from './components/PromptBlockNode';
 import WorkflowStartNode from './components/WorkflowStartNode';
 import TemplateSelector from './components/TemplateSelector';
@@ -56,6 +57,7 @@ const nodeTypes: NodeTypes = {
   aggregator: AggregatorNode,
   evaluator: EvaluatorNode,
   condition: ConditionNode,
+  httpRequest: HttpRequestNode,
   promptBlock: PromptBlockNode,
   workflowStart: WorkflowStartNode,
 };

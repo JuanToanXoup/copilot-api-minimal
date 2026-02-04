@@ -297,6 +297,56 @@ end note
 | `merge` | Deep merge JSON objects |
 | `array` | Collect into array |
 | `first` | Take first successful result |
+
+## HTTP Request Nodes
+
+For making external API calls within a workflow:
+
+```plantuml
+:Fetch User Data;
+note right
+  <<http>>
+  method: GET
+  url: https://api.example.com/users/{{userId}}
+  headers: {
+    "Authorization": "Bearer {{token}}",
+    "Content-Type": "application/json"
+  }
+  <<outputSchema>>
+end note
+```
+
+### HTTP Request with Body
+
+```plantuml
+:Create Record;
+note right
+  <<http>>
+  method: POST
+  url: https://api.example.com/records
+  headers: {
+    "Authorization": "Bearer {{token}}",
+    "Content-Type": "application/json"
+  }
+  body: {
+    "name": "{{name}}",
+    "data": {{analysisResult}}
+  }
+  <<outputSchema>>
+end note
+```
+
+### HTTP Annotation Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `method` | Yes | HTTP method: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` |
+| `url` | Yes | Request URL (supports `{{variable}}` substitution) |
+| `headers` | No | JSON object of request headers |
+| `body` | No | Request body (for POST/PUT/PATCH) |
+| `<<outputSchema>>` | Yes | Placeholder; resolved based on downstream needs |
+| `timeout` | No | Request timeout in seconds (default: 30) |
+| `retries` | No | Number of retry attempts on failure (default: 0) |
 | `vote` | Majority voting (for classification) |
 
 ## Variable Flow
@@ -443,6 +493,7 @@ stop
 |------------------|-------------------|
 | `start` | `workflowStart` |
 | `:Activity;` with `<<prompt>>` | `promptBlock` |
+| `:Activity;` with `<<http>>` | `httpRequest` |
 | `:Activity;` with `<<router>>` | `router` |
 | `:Activity;` with `<<aggregator>>` | `aggregator` |
 | `if/else` | `condition` |
