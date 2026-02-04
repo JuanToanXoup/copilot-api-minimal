@@ -29,7 +29,7 @@ import HttpRequestNode from './components/HttpRequestNode';
 import PromptBlockNode from './components/PromptBlockNode';
 import WorkflowStartNode from './components/WorkflowStartNode';
 import TemplateSelector from './components/TemplateSelector';
-import FlowManager from './components/FlowManager';
+import WorkflowSidebar from './components/WorkflowSidebar';
 import NodePalette from './components/NodePalette';
 import Sidebar from './components/Sidebar';
 import ToastContainer from './components/Toast';
@@ -1551,31 +1551,31 @@ function AppContent() {
         {viewMode === 'prompts' && <PromptsTab />}
 
         {viewMode === 'workflow' && (
-          <div className="flex-1 flex relative">
-            {/* Canvas area */}
-            <div className="flex-1 relative">
-              {/* Top toolbar */}
-              <div className="absolute top-4 left-4 right-4 z-10">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <TemplateSelector
-                      selectedTemplate={selectedTemplate}
-                      onSelectTemplate={handleSelectTemplate}
-                    />
-                    <NodePalette onAddNode={handleAddNode} />
-                  </div>
-                  <div className="bg-white rounded-lg shadow-sm border border-slate-200 flex items-center">
-                    <div className="px-3 py-1.5 border-r border-slate-200">
-                      <FlowManager
-                        nodes={nodes}
-                        edges={edges}
+          <>
+            {/* Left sidebar: Saved Workflows */}
+            <WorkflowSidebar
+              nodes={nodes}
+              edges={edges}
+              selectedTemplate={selectedTemplate}
+              onLoadFlow={handleLoadFlow}
+            />
+
+            <div className="flex-1 flex relative">
+              {/* Canvas area */}
+              <div className="flex-1 relative">
+                {/* Top toolbar */}
+                <div className="absolute top-4 left-4 right-4 z-10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <TemplateSelector
                         selectedTemplate={selectedTemplate}
-                        onLoadFlow={handleLoadFlow}
+                        onSelectTemplate={handleSelectTemplate}
                       />
+                      <NodePalette onAddNode={handleAddNode} />
                     </div>
                     <button
                       onClick={handleAutoArrange}
-                      className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-slate-50 transition-colors text-sm text-slate-600"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 transition-colors text-sm text-slate-600"
                       title="Auto-arrange nodes"
                     >
                       <LayoutGrid className="w-4 h-4" />
@@ -1583,7 +1583,6 @@ function AppContent() {
                     </button>
                   </div>
                 </div>
-              </div>
 
                 <ReactFlow
                   nodes={nodes}
@@ -1613,6 +1612,7 @@ function AppContent() {
               />
             )}
           </div>
+          </>
         )}
 
         {viewMode === 'agents' && (
