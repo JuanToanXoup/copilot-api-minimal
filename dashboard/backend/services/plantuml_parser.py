@@ -1107,6 +1107,9 @@ class WorkflowConverter:
         if prev_node_id:
             edges.append(self._create_edge(prev_node_id, node_id))
 
+        # Track all branch endpoints for merging
+        branch_endpoints = []
+
         # Process true branch
         true_last_id = node_id
         for element in condition.true_branch:
@@ -1117,6 +1120,9 @@ class WorkflowConverter:
             if element_edges and element_edges[0]["source"] == node_id:
                 element_edges[0]["sourceHandle"] = "true"
             true_last_id = last_id
+
+        if true_last_id and true_last_id != node_id:
+            branch_endpoints.append(true_last_id)
 
         # Process false branch
         false_last_id = node_id
@@ -1129,9 +1135,16 @@ class WorkflowConverter:
                 element_edges[0]["sourceHandle"] = "false"
             false_last_id = last_id
 
-        # Return the last node ID (could be from either branch, or condition itself if empty)
-        # For proper merging, caller may need to handle both branch endings
-        return nodes, edges, true_last_id if true_last_id != node_id else false_last_id
+        if false_last_id and false_last_id != node_id:
+            branch_endpoints.append(false_last_id)
+
+        # Store additional branch endpoints for connection to next node
+        # (first endpoint returned as last_id, others stored for later connection)
+        if len(branch_endpoints) > 1:
+            self._pending_fork_ends.extend(branch_endpoints[1:])
+
+        # Return first branch endpoint (or condition node if both branches empty)
+        return nodes, edges, branch_endpoints[0] if branch_endpoints else node_id
 
     def _convert_fork(
         self,
