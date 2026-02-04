@@ -47,7 +47,7 @@ export default function BlockEditor({ node, onClose, onUpdateNode }: BlockEditor
   const data = node.data as Record<string, unknown>;
 
   return (
-    <div className="w-[512px] bg-white border-l border-slate-200 flex flex-col h-full overflow-hidden">
+    <div className="w-[512px] bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className={clsx('px-3 py-2 border-b border-slate-200 flex items-center justify-between', config.bgColor)}>
         <div className="flex items-center gap-1.5">

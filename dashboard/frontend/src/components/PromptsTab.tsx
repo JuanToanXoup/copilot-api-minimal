@@ -774,7 +774,7 @@ export default function PromptsTab() {
       <div
         ref={sidebarRef}
         style={{ width: sidebarWidth }}
-        className="flex-shrink-0 bg-white border-r border-slate-200 flex flex-col relative"
+        className="flex-shrink-0 bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col relative overflow-hidden"
       >
         {/* Resize handle */}
         <div
@@ -1221,12 +1221,7 @@ function PromptEditor({
         </div>
 
         {/* Template Editor - Full Height with Line Numbers */}
-        <div className="flex-1 flex flex-col p-6 bg-slate-50 min-h-0">
-          <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-slate-700">Prompt Template</label>
-            <p className="text-xs text-slate-500">Use {'{{variable}}'} or $VARIABLE syntax for dynamic values</p>
-          </div>
-          <div className="flex-1 flex border border-slate-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-indigo-400 min-h-0 overflow-hidden">
+        <div className="flex-1 flex min-h-0 overflow-hidden">
             {/* Line numbers gutter */}
             <div
               className="flex-shrink-0 bg-slate-50 border-r border-slate-200 overflow-hidden select-none"
@@ -1252,12 +1247,11 @@ function PromptEditor({
               value={promptTemplate}
               onChange={(e) => setPromptTemplate(e.target.value)}
               onScroll={handleScroll}
-              placeholder="Enter your prompt template..."
+              placeholder="Enter your prompt template...&#10;&#10;Use {{variable}} or $VARIABLE for dynamic values"
               className="flex-1 px-4 py-4 text-sm font-mono focus:outline-none resize-none leading-[21px] overflow-auto whitespace-pre"
               spellCheck={false}
               wrap="off"
             />
-          </div>
         </div>
       </div>
 

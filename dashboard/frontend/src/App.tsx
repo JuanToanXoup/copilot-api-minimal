@@ -1547,7 +1547,7 @@ function AppContent() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden p-4 gap-4">
         {viewMode === 'prompts' && <PromptsTab />}
 
         {viewMode === 'workflow' && (
@@ -1560,7 +1560,7 @@ function AppContent() {
               onLoadFlow={handleLoadFlow}
             />
 
-            <div className="flex-1 flex relative">
+            <div className="flex-1 flex relative gap-4">
               {/* Canvas area */}
               <div className="flex-1 relative">
                 {/* Top toolbar */}
@@ -1617,11 +1617,11 @@ function AppContent() {
 
         {viewMode === 'agents' && (
           /* Agents Mode - Connected instances */
-          <div className="flex-1 flex">
-            <div className="w-80 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden">
+          <div className="flex-1 flex gap-4">
+            <div className="w-80 bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col h-full overflow-hidden">
               <Sidebar agents={agents} onDragStart={onDragStart} onSpawnAgent={onSpawnAgent} />
             </div>
-            <div className="flex-1 bg-slate-50 flex items-center justify-center">
+            <div className="flex-1 bg-white border border-slate-200 rounded-lg shadow-sm flex items-center justify-center">
               <div className="text-center text-slate-400">
                 <p className="text-lg font-medium mb-2">Connected Agents</p>
                 <p className="text-sm">

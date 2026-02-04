@@ -94,7 +94,7 @@ export default function WorkflowSidebar({ nodes, edges, selectedTemplate, onLoad
   const [isSaving, setIsSaving] = useState(false);
 
   // Sidebar resize state
-  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
@@ -693,7 +693,7 @@ export default function WorkflowSidebar({ nodes, edges, selectedTemplate, onLoad
       <div
         ref={sidebarRef}
         style={{ width: sidebarWidth }}
-        className="flex-shrink-0 bg-white border-r border-slate-200 flex flex-col relative"
+        className="flex-shrink-0 bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col relative overflow-hidden"
       >
         {/* Resize handle */}
         <div

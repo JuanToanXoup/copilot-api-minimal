@@ -23,7 +23,7 @@ export default function MonitoringLayout({
     : null;
 
   return (
-    <div className="h-full w-full bg-slate-100 p-4">
+    <div className="h-full w-full">
       <div className="h-full grid grid-cols-12 gap-4">
         {/* Left Column: Instance Pool + Metrics */}
         <div className="col-span-3 flex flex-col gap-4 min-h-0">
