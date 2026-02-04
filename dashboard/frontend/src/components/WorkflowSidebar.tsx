@@ -16,6 +16,7 @@ import {
   ChevronDown,
   MoreVertical,
   Pencil,
+  FileCode,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { Node, Edge } from '@xyflow/react';
@@ -92,6 +93,12 @@ export default function WorkflowSidebar({ nodes, edges, selectedTemplate, onLoad
   const [flowName, setFlowName] = useState('');
   const [flowDescription, setFlowDescription] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // PlantUML import modal state
+  const [showPlantUMLModal, setShowPlantUMLModal] = useState(false);
+  const [plantUMLText, setPlantUMLText] = useState('');
+  const [plantUMLName, setPlantUMLName] = useState('');
+  const [isConverting, setIsConverting] = useState(false);
 
   // Sidebar resize state
   const [sidebarWidth, setSidebarWidth] = useState(280);
@@ -468,6 +475,52 @@ export default function WorkflowSidebar({ nodes, edges, selectedTemplate, onLoad
     event.target.value = '';
   };
 
+  // Import from PlantUML
+  const handlePlantUMLImport = async () => {
+    if (!plantUMLText.trim()) return;
+
+    setIsConverting(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/workflows/from-plantuml`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plantuml: plantUMLText,
+          name: plantUMLName.trim() || undefined,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.error || response.status >= 400) {
+        addToast({
+          type: 'error',
+          title: 'Conversion failed',
+          message: result.error || result.detail?.error || 'Failed to convert PlantUML',
+        });
+        return;
+      }
+
+      if (result.nodes && result.edges) {
+        onLoadFlow(result.nodes, result.edges);
+        addToast({
+          type: 'success',
+          title: 'PlantUML imported',
+          message: `Loaded "${result.name}" with ${result.nodes.length} nodes`,
+        });
+        setShowPlantUMLModal(false);
+        setPlantUMLText('');
+        setPlantUMLName('');
+      } else {
+        addToast({ type: 'error', title: 'Conversion failed', message: 'Invalid response from server' });
+      }
+    } catch (error) {
+      addToast({ type: 'error', title: 'Conversion failed', message: String(error) });
+    } finally {
+      setIsConverting(false);
+    }
+  };
+
   // Recursive folder renderer
   const renderFolder = (folder: FlowFolder, depth: number = 0) => {
     const childFolders = getChildFolders(folder.name);
@@ -719,6 +772,13 @@ export default function WorkflowSidebar({ nodes, edges, selectedTemplate, onLoad
                 title="Import from JSON"
               >
                 <Upload className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setShowPlantUMLModal(true)}
+                className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                title="Import from PlantUML"
+              >
+                <FileCode className="w-4 h-4" />
               </button>
               <button
                 onClick={handleExport}
@@ -993,6 +1053,96 @@ export default function WorkflowSidebar({ nodes, edges, selectedTemplate, onLoad
                 )}
               >
                 {isSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PlantUML Import Modal */}
+      {showPlantUMLModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-[500px] overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                <FileCode className="w-4 h-4 text-green-500" />
+                Import from PlantUML
+              </h3>
+              <button
+                onClick={() => {
+                  setShowPlantUMLModal(false);
+                  setPlantUMLText('');
+                  setPlantUMLName('');
+                }}
+                className="p-1 hover:bg-slate-100 rounded"
+              >
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600">Workflow Name (optional)</label>
+                <input
+                  type="text"
+                  value={plantUMLName}
+                  onChange={(e) => setPlantUMLName(e.target.value)}
+                  placeholder="My Workflow"
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">PlantUML Diagram</label>
+                <textarea
+                  value={plantUMLText}
+                  onChange={(e) => setPlantUMLText(e.target.value)}
+                  placeholder={`@startuml
+title My Workflow
+
+start
+
+:First Step;
+note right
+  <<prompt>>
+  template: my-template
+  input: {{input}}
+end note
+
+:Second Step;
+
+stop
+
+@enduml`}
+                  rows={12}
+                  className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-green-500"
+                  autoFocus
+                />
+              </div>
+              <div className="text-xs text-slate-500">
+                Paste a PlantUML activity diagram. Use annotations like <code className="bg-slate-100 px-1 rounded">&lt;&lt;prompt&gt;&gt;</code> to configure nodes.
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t bg-slate-50 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowPlantUMLModal(false);
+                  setPlantUMLText('');
+                  setPlantUMLName('');
+                }}
+                className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePlantUMLImport}
+                disabled={!plantUMLText.trim() || isConverting}
+                className={clsx(
+                  'px-3 py-1.5 text-sm rounded-lg',
+                  plantUMLText.trim() && !isConverting
+                    ? 'bg-green-500 text-white hover:bg-green-600'
+                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                )}
+              >
+                {isConverting ? 'Converting...' : 'Import'}
               </button>
             </div>
           </div>
