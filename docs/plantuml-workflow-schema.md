@@ -89,7 +89,6 @@ note right
   template: code-analysis
   agent: Analyzer
   input: {{code}}
-  output: analysis
   outputSchema: {
     "analysis": "string"
   }
@@ -103,10 +102,7 @@ end note
 | `template` | Yes | Prompt template ID or inline template string |
 | `agent` | No | Agent role/ID (overrides swimlane if specified) |
 | `input` | Yes | Input variable(s) using `{{variable}}` or `$VARIABLE` syntax |
-| `output` | Yes | Output variable name for downstream reference |
-| `outputSchema` | Yes | JSON object defining the expected output structure |
-| `outputMode` | No | Extraction mode: `full`, `json`, `jsonpath`, `regex`, `first_line` (default: `json`) |
-| `outputPattern` | No | Pattern for `jsonpath` or `regex` extraction modes |
+| `outputSchema` | Yes | JSON object defining expected output structure; keys become downstream variables |
 | `retries` | No | Number of retry attempts on failure (default: 2) |
 | `timeout` | No | Timeout in seconds (default: 120) |
 
@@ -120,7 +116,7 @@ The parser converts annotations to `PromptBlockNodeData`:
 | Swimlane or `agent:` | `agentId` (resolved) |
 | `template:` | `promptTemplateId` (resolved) |
 | `input:` variables | `variableBindings[]` |
-| `output:` | Used for edge labels and downstream references |
+| `outputSchema:` keys | Available as downstream variables (e.g., `{{analysis}}`) |
 
 ### Inline Templates
 
@@ -136,7 +132,6 @@ note right
 
     Respond as JSON with result field.
   input: {{code}}
-  output: quickCheck
   outputSchema: {
     "result": "string"
   }
@@ -153,12 +148,7 @@ interface PromptTemplate {
   name: string;                  // Display name
   description?: string;          // What the prompt does
   template: string;              // The prompt with {{variables}}
-  outputSchema: object;        // JSON schema defining expected output structure
-  outputExtraction: {
-    mode: 'full' | 'json' | 'jsonpath' | 'regex' | 'first_line';
-    pattern?: string;            // For jsonpath/regex
-    outputName: string;          // Variable name for output
-  };
+  outputSchema: object;          // JSON defining expected output; keys become downstream variables
 }
 ```
 
