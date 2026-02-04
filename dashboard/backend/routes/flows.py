@@ -87,27 +87,6 @@ async def list_flows(
     return sorted(flows, key=lambda x: x.get("updatedAt", "") or "", reverse=True)
 
 
-@router.get("/{name:path}")
-async def get_flow(
-    name: str,
-    project_path: str | None = Query(None, description="Project path for local storage")
-):
-    """Get a specific flow by name (can include folder path)."""
-    flows_dir = _get_flows_dir(project_path)
-
-    # Handle folder paths in name
-    file_path = flows_dir / f"{name}.json"
-
-    if not file_path.exists():
-        return {"error": "Flow not found"}
-
-    try:
-        with open(file_path) as f:
-            return json.load(f)
-    except Exception as e:
-        return {"error": str(e)}
-
-
 @router.post("")
 async def save_flow(
     flow: dict,
@@ -149,26 +128,8 @@ async def save_flow(
         return {"error": str(e)}
 
 
-@router.delete("/{name:path}")
-async def delete_flow(
-    name: str,
-    project_path: str | None = Query(None, description="Project path for local storage")
-):
-    """Delete a flow (name can include folder path)."""
-    flows_dir = _get_flows_dir(project_path)
-    file_path = flows_dir / f"{name}.json"
-
-    if not file_path.exists():
-        return {"error": "Flow not found"}
-
-    try:
-        file_path.unlink()
-        return {"status": "deleted", "name": name}
-    except Exception as e:
-        return {"error": str(e)}
-
-
 # ============== Folder Management ==============
+# NOTE: These routes MUST come BEFORE the /{name:path} catch-all routes
 
 @router.get("/folders/list")
 async def list_folders(
@@ -347,5 +308,48 @@ async def move_flow(
     try:
         source_path.rename(target_path)
         return {"status": "moved", "name": flow_name, "folder": target_folder}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ============== Catch-all routes ==============
+# NOTE: These MUST come AFTER all specific routes above
+
+@router.get("/{name:path}")
+async def get_flow(
+    name: str,
+    project_path: str | None = Query(None, description="Project path for local storage")
+):
+    """Get a specific flow by name (can include folder path)."""
+    flows_dir = _get_flows_dir(project_path)
+
+    # Handle folder paths in name
+    file_path = flows_dir / f"{name}.json"
+
+    if not file_path.exists():
+        return {"error": "Flow not found"}
+
+    try:
+        with open(file_path) as f:
+            return json.load(f)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.delete("/{name:path}")
+async def delete_flow(
+    name: str,
+    project_path: str | None = Query(None, description="Project path for local storage")
+):
+    """Delete a flow (name can include folder path)."""
+    flows_dir = _get_flows_dir(project_path)
+    file_path = flows_dir / f"{name}.json"
+
+    if not file_path.exists():
+        return {"error": "Flow not found"}
+
+    try:
+        file_path.unlink()
+        return {"status": "deleted", "name": name}
     except Exception as e:
         return {"error": str(e)}
