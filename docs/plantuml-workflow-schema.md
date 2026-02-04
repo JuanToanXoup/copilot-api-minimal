@@ -1,10 +1,24 @@
 # PlantUML Workflow Schema Specification
 
-This document describes a schema for defining agent workflows using PlantUML activity diagrams. The schema extends standard PlantUML syntax with annotations to capture prompt templates, agent assignments, variable bindings, and control flow.
+This document describes a schema for defining agent workflows using PlantUML diagrams. **Activity Diagrams** are the primary format, chosen for their natural readability and ease of AI generation.
 
 ## Overview
 
 PlantUML activity diagrams provide a visual way to define workflows. By adding structured annotations, we can convert these diagrams into executable workflow configurations that integrate with the agent orchestration system.
+
+### Why Activity Diagrams?
+
+| Consideration | Activity Diagram | Object Diagram |
+|---------------|------------------|----------------|
+| **AI Generation** | Easy - natural language-like | Hard - must track IDs |
+| **Readability** | Procedural, intuitive | Graph-based, verbose |
+| **Compactness** | Minimal boilerplate | Requires explicit definitions |
+| **Human Authoring** | Quick to write | More structured |
+
+Activity diagrams read like natural instructions, making them ideal for:
+- AI agents generating workflows from user descriptions
+- Humans quickly sketching workflow ideas
+- Documentation and communication
 
 ## Basic Structure
 
@@ -465,19 +479,29 @@ This enables visual editing in PlantUML tools while maintaining compatibility wi
 5. Aggregator inputs must all be defined upstream
 6. No circular dependencies (except explicit loops via evaluator)
 
-## Alternative: Object Diagram Schema
+## Internal Format: Object Diagram Schema
 
-While activity diagrams excel at showing flow, **object diagrams** provide a more explicit graph-based representation. This approach uses objects to define nodes and arrows to define edges, with `map` objects for structured configuration.
+While Activity Diagrams are the primary authoring format, **Object Diagrams** serve as the internal representation for parsing and tooling. When an Activity Diagram is parsed, it converts to Object Diagram structure internally before becoming workflow JSON.
 
-### Why Object Diagrams?
+### Why Object Diagrams for Parsing?
 
-| Feature | Activity Diagram | Object Diagram |
+| Concern | Activity Diagram | Object Diagram |
 |---------|------------------|----------------|
-| Flow visualization | Excellent | Good |
-| Node configuration | Via notes | Native fields |
-| Explicit edges | Implicit | Explicit arrows |
-| Variable bindings | Annotations | Map objects |
-| Graph structure | Derived | Direct |
+| Parsing reliability | Implicit structure | **Explicit nodes/edges** |
+| Round-trip editing | Lossy | **Lossless** |
+| Tooling integration | Requires inference | **Direct mapping** |
+| Validation | Complex | **Straightforward** |
+
+**Workflow Pipeline:**
+```
+User/AI writes Activity Diagram
+        ↓
+Parser converts to Object Diagram (internal)
+        ↓
+Object Diagram maps to React Flow JSON
+        ↓
+Workflow executes
+```
 
 ### Basic Object Diagram Structure
 
