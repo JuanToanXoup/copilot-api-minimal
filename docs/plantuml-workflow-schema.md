@@ -465,6 +465,408 @@ This enables visual editing in PlantUML tools while maintaining compatibility wi
 5. Aggregator inputs must all be defined upstream
 6. No circular dependencies (except explicit loops via evaluator)
 
+## Alternative: Object Diagram Schema
+
+While activity diagrams excel at showing flow, **object diagrams** provide a more explicit graph-based representation. This approach uses objects to define nodes and arrows to define edges, with `map` objects for structured configuration.
+
+### Why Object Diagrams?
+
+| Feature | Activity Diagram | Object Diagram |
+|---------|------------------|----------------|
+| Flow visualization | Excellent | Good |
+| Node configuration | Via notes | Native fields |
+| Explicit edges | Implicit | Explicit arrows |
+| Variable bindings | Annotations | Map objects |
+| Graph structure | Derived | Direct |
+
+### Basic Object Diagram Structure
+
+```plantuml
+@startuml Workflow Definition
+
+object WorkflowStart <<start>> {
+  id = "start-1"
+  label = "User Input"
+}
+
+object AnalyzeCode <<promptBlock>> {
+  id = "analyze-1"
+  label = "Code Analysis"
+  agent = "Analyzer"
+  template = "code-analysis"
+}
+
+object ReviewCode <<promptBlock>> {
+  id = "review-1"
+  label = "Code Review"
+  agent = "Reviewer"
+  template = "code-review"
+}
+
+object Output <<output>> {
+  id = "output-1"
+  label = "Final Output"
+}
+
+WorkflowStart -down-> AnalyzeCode : input
+AnalyzeCode -down-> ReviewCode : analysis
+ReviewCode -down-> Output : review
+
+@enduml
+```
+
+### Node Types with Stereotypes
+
+Use stereotypes (`<<type>>`) to indicate node types:
+
+```plantuml
+object MyNode <<promptBlock>> {
+  id = "node-1"
+  label = "My Prompt Block"
+}
+
+object Router <<router>> {
+  id = "router-1"
+  categories = ["tech", "billing", "general"]
+}
+
+object Condition <<condition>> {
+  id = "cond-1"
+  expression = "$score > 80"
+}
+
+object Aggregator <<aggregator>> {
+  id = "agg-1"
+  strategy = "merge"
+}
+```
+
+### Map Objects for Configuration
+
+PlantUML `map` objects use `=>` syntax for key-value pairs, ideal for variable bindings and complex configuration:
+
+```plantuml
+map PromptConfig {
+  template => code-analysis
+  outputMode => json
+  retries => 2
+  timeout => 120
+}
+
+map VariableBindings {
+  code => {{input}}
+  language => "typescript"
+  context => {{previousOutput}}
+}
+
+map OutputSchema {
+  issues => array
+  suggestions => array
+  score => number
+}
+
+object AnalyzeCode <<promptBlock>> {
+  id = "analyze-1"
+  label = "Analyze Code"
+  agent = "Analyzer"
+}
+
+AnalyzeCode *-- PromptConfig
+AnalyzeCode *-- VariableBindings
+AnalyzeCode *-- OutputSchema
+```
+
+### Relationship Arrows
+
+Different arrow styles convey meaning:
+
+```plantuml
+' Data flow (solid arrow)
+NodeA --> NodeB : variableName
+
+' Conditional true branch (solid, labeled)
+Condition --> TrueBranch : true
+
+' Conditional false branch (dashed)
+Condition ..> FalseBranch : false
+
+' Composition (node owns config)
+Node *-- Config
+
+' Aggregation (node references)
+Node o-- SharedResource
+```
+
+### Arrow Direction Control
+
+Control layout with direction keywords:
+
+```plantuml
+Start -down-> Step1
+Step1 -down-> Step2
+Step2 -right-> Parallel1
+Step2 -left-> Parallel2
+Parallel1 -down-> Merge
+Parallel2 -down-> Merge
+```
+
+### Condition Nodes in Object Diagrams
+
+```plantuml
+object QualityCheck <<condition>> {
+  id = "cond-1"
+  variable = "quality.score"
+  operator = ">"
+  value = "0.8"
+}
+
+object Publish <<promptBlock>> {
+  id = "publish-1"
+  label = "Publish Content"
+}
+
+object Revise <<promptBlock>> {
+  id = "revise-1"
+  label = "Revise Content"
+}
+
+QualityCheck --> Publish : true
+QualityCheck ..> Revise : false
+```
+
+### Router Nodes with Map Routes
+
+```plantuml
+object ClassifyRequest <<router>> {
+  id = "router-1"
+  template = "request-classifier"
+}
+
+map Routes {
+  technical => TechSupport
+  billing => BillingAgent
+  general => GeneralSupport
+}
+
+ClassifyRequest *-- Routes
+
+object TechSupport <<promptBlock>> {
+  id = "tech-1"
+  agent = "TechAgent"
+}
+
+object BillingAgent <<promptBlock>> {
+  id = "billing-1"
+  agent = "BillingAgent"
+}
+
+object GeneralSupport <<promptBlock>> {
+  id = "general-1"
+  agent = "GeneralAgent"
+}
+
+ClassifyRequest --> TechSupport : technical
+ClassifyRequest --> BillingAgent : billing
+ClassifyRequest --> GeneralSupport : general
+```
+
+### Complete Object Diagram Example
+
+```plantuml
+@startuml Code Review Pipeline
+
+title Code Review Workflow
+
+' === WORKFLOW INPUT ===
+object WorkflowStart <<start>> {
+  id = "start"
+  label = "Code Input"
+}
+
+map InputVariables {
+  code => string (required)
+  language => string (default: auto)
+}
+
+WorkflowStart *-- InputVariables
+
+' === PARALLEL ANALYSIS ===
+object StaticAnalysis <<promptBlock>> {
+  id = "static-1"
+  label = "Static Analysis"
+  agent = "Analyzer"
+}
+
+map StaticConfig {
+  template => static-analysis
+  outputMode => json
+  output => staticAnalysis
+}
+
+map StaticInputs {
+  code => {{input.code}}
+  language => {{input.language}}
+}
+
+StaticAnalysis *-- StaticConfig
+StaticAnalysis *-- StaticInputs
+
+object SecurityScan <<promptBlock>> {
+  id = "security-1"
+  label = "Security Scan"
+  agent = "SecurityScanner"
+}
+
+map SecurityConfig {
+  template => security-scan
+  outputMode => json
+  output => securityReport
+}
+
+map SecurityInputs {
+  code => {{input.code}}
+}
+
+SecurityScan *-- SecurityConfig
+SecurityScan *-- SecurityInputs
+
+' === AGGREGATION ===
+object MergeFindings <<aggregator>> {
+  id = "merge-1"
+  label = "Merge Findings"
+  strategy = "merge"
+  output = "allFindings"
+}
+
+map AggregatorInputs {
+  staticAnalysis => static-1.output
+  securityReport => security-1.output
+}
+
+MergeFindings *-- AggregatorInputs
+
+' === REVIEW ===
+object ReviewFindings <<promptBlock>> {
+  id = "review-1"
+  label = "Review Findings"
+  agent = "Reviewer"
+}
+
+map ReviewConfig {
+  template => finding-reviewer
+  outputMode => json
+  output => reviewedFindings
+}
+
+map ReviewInputs {
+  code => {{input.code}}
+  findings => {{allFindings}}
+}
+
+ReviewFindings *-- ReviewConfig
+ReviewFindings *-- ReviewInputs
+
+' === CONDITION ===
+object CheckCritical <<condition>> {
+  id = "cond-1"
+  variable = "reviewedFindings.critical"
+  operator = ">"
+  value = "0"
+}
+
+' === BRANCHES ===
+object FlagManual <<promptBlock>> {
+  id = "flag-1"
+  label = "Flag for Manual Review"
+  agent = "Reviewer"
+  template = "critical-summary"
+}
+
+object GenerateReport <<promptBlock>> {
+  id = "report-1"
+  label = "Generate Report"
+  agent = "Reporter"
+  template = "report-generator"
+}
+
+' === OUTPUT ===
+object FinalOutput <<output>> {
+  id = "output-1"
+  label = "Workflow Output"
+}
+
+' === EDGES (Data Flow) ===
+WorkflowStart -down-> StaticAnalysis : code, language
+WorkflowStart -down-> SecurityScan : code
+
+StaticAnalysis -down-> MergeFindings : staticAnalysis
+SecurityScan -down-> MergeFindings : securityReport
+
+MergeFindings -down-> ReviewFindings : allFindings
+ReviewFindings -down-> CheckCritical : reviewedFindings
+
+CheckCritical --> FlagManual : true (critical > 0)
+CheckCritical ..> GenerateReport : false (no critical)
+
+FlagManual -down-> FinalOutput : criticalSummary
+GenerateReport -down-> FinalOutput : finalReport
+
+@enduml
+```
+
+### Object Diagram Parser Mapping
+
+| Object Element | Workflow Property |
+|---------------|-------------------|
+| `object Name <<type>>` | Node with type |
+| `id = "..."` | Node ID |
+| `label = "..."` | Display label |
+| `agent = "..."` | Agent assignment |
+| `template = "..."` | Prompt template reference |
+| `map ConfigName` | Configuration object |
+| `A --> B : label` | Edge with variable name |
+| `A ..> B : label` | Conditional/optional edge |
+| `A *-- B` | Composition (config owned by node) |
+
+### When to Use Object Diagrams
+
+**Choose Object Diagrams when:**
+- You want explicit, typed node definitions
+- Configuration is complex with many fields
+- You need clear visualization of the graph structure
+- Variable bindings are numerous and need organization
+- You're building tooling that parses/generates workflows
+
+**Choose Activity Diagrams when:**
+- Flow and sequencing is the primary concern
+- You want swimlane-based agent visualization
+- The workflow is more procedural than graph-like
+- You prefer more compact notation
+
+### Hybrid Approach
+
+You can combine both styles - use activity diagrams for high-level flow visualization and object diagrams for detailed node configuration:
+
+```plantuml
+@startuml
+
+' High-level flow (activity style)
+start
+:Analyze;
+:Review;
+if (Quality OK?) then (yes)
+  :Publish;
+else (no)
+  :Revise;
+endif
+stop
+
+' Detailed config (object style) - in separate diagram
+' object Analyze <<promptBlock>> { ... }
+
+@enduml
+```
+
 ## Future Extensions
 
 - **Sub-workflows**: `<<include>>` annotation for workflow composition
@@ -472,3 +874,4 @@ This enables visual editing in PlantUML tools while maintaining compatibility wi
 - **Timeouts**: Global and per-node timeout configuration
 - **Metrics**: `<<metrics>>` annotations for tracking
 - **Human-in-the-loop**: `<<approval>>` nodes for manual gates
+- **Object Diagram Templates**: Reusable object patterns for common node configurations
