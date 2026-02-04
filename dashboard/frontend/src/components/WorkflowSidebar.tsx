@@ -506,11 +506,16 @@ export default function WorkflowSidebar({ nodes, edges, selectedTemplate, onLoad
         addToast({
           type: 'success',
           title: 'PlantUML imported',
-          message: `Loaded "${result.name}" with ${result.nodes.length} nodes`,
+          message: `Loaded "${result.name}" with ${result.nodes.length} nodes. Save it now.`,
         });
+        // Close PlantUML modal and open Save modal with pre-filled name
         setShowPlantUMLModal(false);
         setPlantUMLText('');
         setPlantUMLName('');
+        // Pre-fill the save modal with the workflow name
+        setFlowName(result.name || 'Imported Workflow');
+        setFlowDescription(result.description || 'Imported from PlantUML');
+        setShowSaveModal(true);
       } else {
         addToast({ type: 'error', title: 'Conversion failed', message: 'Invalid response from server' });
       }
