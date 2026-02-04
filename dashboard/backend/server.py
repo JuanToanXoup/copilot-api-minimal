@@ -20,9 +20,11 @@ from services import (
     RegistryService,
     HeartbeatService,
     SpawnerService,
+    PipelineExecutor,
 )
-from routes import agents_router, flows_router, http_router, plantuml_router, project_router, prompts_router, websocket_router, yaml_workflow_router
+from routes import agents_router, failures_router, flows_router, http_router, plantuml_router, project_router, prompts_router, websocket_router, yaml_workflow_router
 from routes import agents as agents_route
+from routes import failures as failures_route
 from routes import websocket as websocket_route
 
 
@@ -32,9 +34,11 @@ agent_manager = AgentManager(broadcast)
 registry_service = RegistryService(agent_manager, broadcast)
 heartbeat_service = HeartbeatService(agent_manager, broadcast)
 spawner_service = SpawnerService(broadcast)
+pipeline_executor = PipelineExecutor(agent_manager, broadcast)
 
 # Initialize route dependencies
 agents_route.init(agent_manager, broadcast)
+failures_route.init(pipeline_executor)
 websocket_route.init(agent_manager, broadcast, spawner_service)
 
 
@@ -44,13 +48,16 @@ async def lifespan(app: FastAPI):
     # Startup: launch background tasks
     registry_task = asyncio.create_task(registry_service.start())
     heartbeat_task = asyncio.create_task(heartbeat_service.start())
+    pipeline_task = asyncio.create_task(pipeline_executor.start())
 
     yield
 
     # Shutdown: cancel tasks
     registry_task.cancel()
     heartbeat_task.cancel()
+    pipeline_task.cancel()
     registry_service.stop()
+    pipeline_executor.stop()
 
 
 app = FastAPI(title="Multi-Agent Dashboard", lifespan=lifespan)
@@ -66,6 +73,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(agents_router)
+app.include_router(failures_router)
 app.include_router(flows_router)
 app.include_router(http_router)
 app.include_router(plantuml_router)

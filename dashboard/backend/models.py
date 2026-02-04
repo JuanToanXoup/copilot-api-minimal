@@ -63,3 +63,68 @@ class FlowSummary(TypedDict):
     edgeCount: int
     createdAt: Optional[str]
     updatedAt: Optional[str]
+
+
+# ==================== Pipeline Execution Models ====================
+
+FailureStatus = Literal["pending", "running", "completed", "failed", "escalated"]
+TaskStatus = Literal["pending", "assigned", "running", "completed", "failed", "skipped"]
+
+
+class FailureInput(TypedDict, total=False):
+    """Input for creating a failure."""
+    test_file: str
+    test_name: str
+    error_message: str
+    stack_trace: Optional[str]
+    expected: Optional[str]
+    actual: Optional[str]
+    context: Optional[dict]  # Additional context (DOM, selectors, etc.)
+
+
+class Failure(TypedDict):
+    """A test failure being processed through the pipeline."""
+    id: str
+    test_file: str
+    test_name: str
+    error_message: str
+    stack_trace: Optional[str]
+    expected: Optional[str]
+    actual: Optional[str]
+    context: dict
+    status: FailureStatus
+    workflow_id: Optional[str]
+    current_node_id: Optional[str]
+    created_at: str
+    updated_at: str
+    completed_at: Optional[str]
+    retry_count: int
+    node_results: dict[str, Any]  # Results from each executed node
+
+
+class TaskExecution(TypedDict):
+    """Execution state for a single pipeline task/node."""
+    id: str
+    failure_id: str
+    node_id: str
+    node_type: str
+    node_label: str
+    status: TaskStatus
+    assigned_agent_id: Optional[str]
+    input_data: dict
+    output_data: Optional[dict]
+    error: Optional[str]
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    retry_count: int
+
+
+class PipelineState(TypedDict):
+    """Overall state of a pipeline execution."""
+    failure_id: str
+    workflow_id: str
+    status: FailureStatus
+    execution_order: list[str]  # Node IDs in execution order
+    current_index: int
+    node_outputs: dict[str, Any]  # Outputs keyed by node ID
+    tasks: dict[str, TaskExecution]  # Task state keyed by node ID

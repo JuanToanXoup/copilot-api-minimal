@@ -5,6 +5,7 @@ from .agent_manager import AgentManager, AgentConnection
 from .registry import RegistryService
 from .heartbeat import HeartbeatService
 from .spawner import SpawnerService
+from .pipeline_executor import PipelineExecutor
 
 __all__ = [
     "BroadcastService",
@@ -13,4 +14,5 @@ __all__ = [
     "RegistryService",
     "HeartbeatService",
     "SpawnerService",
+    "PipelineExecutor",
 ]

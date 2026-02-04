@@ -399,6 +399,28 @@ export function useWorkflowExecution({
     return runSequentialWorkflow(prompt);
   }, [nodes, runSupervisorWorkflow, runSequentialWorkflow]);
 
+  // Helper: Substitute variables in a string
+  const substituteVariables = useCallback(
+    (text: string, input: string, nodeOutputs: Record<string, unknown>): string => {
+      const variableRegex = /\{\{(\w+)\}\}/g;
+      return text.replace(variableRegex, (_match, varName) => {
+        if (varName === 'input') return input;
+        for (const nid of Object.keys(nodeOutputs)) {
+          const outputs = nodeOutputs[nid];
+          if (outputs && typeof outputs === 'object') {
+            const outputObj = outputs as Record<string, unknown>;
+            if (varName in outputObj) {
+              const value = outputObj[varName];
+              return typeof value === 'string' ? value : JSON.stringify(value);
+            }
+          }
+        }
+        return input;
+      });
+    },
+    []
+  );
+
   // Prompt block workflow with reference-based architecture
   const runPromptBlockWorkflow = useCallback(async (input: string) => {
     console.log('[Workflow] runPromptBlockWorkflow called, isRunning:', isWorkflowRunningRef.current);
@@ -415,6 +437,7 @@ export function useWorkflowExecution({
     try {
       const nodeOutputs: Record<string, unknown> = {};
 
+      // Reset all nodes - set promptBlocks and httpRequest to 'waiting' to show they're queued
       setNodes((nds) =>
         nds.map((node) => {
           if (node.type === 'workflowStart') {
@@ -426,6 +449,12 @@ export function useWorkflowExecution({
               data: { ...node.data, status: 'waiting', resolvedPrompt: '', response: '', extractedOutput: null },
             };
           }
+          if (node.type === 'httpRequest') {
+            return {
+              ...node,
+              data: { ...node.data, status: 'idle', response: undefined, error: undefined },
+            };
+          }
           if (node.type === 'output') {
             return { ...node, data: { ...node.data, status: 'idle', results: [] } };
           }
@@ -435,18 +464,110 @@ export function useWorkflowExecution({
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      const promptBlockNodes = nodes.filter(n => n.type === 'promptBlock');
-      console.log('[Workflow] PromptBlock nodes:', promptBlockNodes.map(n => n.id));
+      // Get execution order
+      const executableNodes = nodes.filter(n => n.type === 'promptBlock' || n.type === 'httpRequest');
+      console.log('[Workflow] Executable nodes:', executableNodes.map(n => `${n.id} (${n.type})`));
 
       const executionOrder = getExecutionOrder(nodes, edges);
       console.log('[Workflow] Execution order:', executionOrder);
 
       const results: Array<{ label: string; response: string; output: unknown }> = [];
 
+      // Execute nodes in order (SEQUENTIAL - each must complete before next starts)
       for (const nodeId of executionOrder) {
         const node = nodes.find((n) => n.id === nodeId);
-        if (!node || node.type !== 'promptBlock') continue;
+        if (!node || (node.type !== 'promptBlock' && node.type !== 'httpRequest')) continue;
 
+        // Handle HTTP Request nodes
+        if (node.type === 'httpRequest') {
+          const httpData = node.data as {
+            label?: string;
+            method?: string;
+            url?: string;
+            headers?: Record<string, string>;
+            body?: string;
+          };
+
+          // Substitute variables in URL and body
+          const resolvedUrl = substituteVariables(httpData.url || '', input, nodeOutputs);
+          const resolvedBody = substituteVariables(httpData.body || '', input, nodeOutputs);
+
+          // Update node to show pending state
+          setNodes((nds) =>
+            nds.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: 'pending' } }
+                : n
+            )
+          );
+
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          try {
+            console.log(`[Workflow] >>> HTTP REQUEST ${nodeId}: ${httpData.method} ${resolvedUrl}`);
+            const response = await fetch('/api/http/execute', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                method: httpData.method || 'GET',
+                url: resolvedUrl,
+                headers: httpData.headers,
+                body: resolvedBody ? JSON.parse(resolvedBody) : undefined,
+              }),
+            });
+
+            const result = await response.json();
+            console.log(`[Workflow] <<< HTTP RESPONSE ${nodeId}:`, result);
+
+            const isError = !!result.error || result.status >= 400;
+
+            // Store response data for downstream nodes
+            nodeOutputs[nodeId] = { response: result.data, status: result.status };
+
+            setNodes((nds) =>
+              nds.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: isError ? 'error' : 'success',
+                        response: result.error ? undefined : result,
+                        error: result.error,
+                      },
+                    }
+                  : n
+              )
+            );
+
+            results.push({
+              label: httpData.label || 'HTTP Request',
+              response: JSON.stringify(result.data),
+              output: result.data,
+            });
+          } catch (err) {
+            console.error(`[Workflow] HTTP ERROR ${nodeId}:`, err);
+            setNodes((nds) =>
+              nds.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: 'error',
+                        error: String(err),
+                      },
+                    }
+                  : n
+              )
+            );
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          continue;
+        }
+
+        // Handle promptBlock nodes
         const blockData = node.data as unknown as PromptBlockNodeData;
 
         const targetAgent = blockData.agentId
@@ -579,7 +700,7 @@ export function useWorkflowExecution({
     } finally {
       isWorkflowRunningRef.current = false;
     }
-  }, [nodes, edges, setNodes, agents, getPromptTemplateById, sendPromptToAgent]);
+  }, [nodes, edges, setNodes, agents, getPromptTemplateById, sendPromptToAgent, substituteVariables]);
 
   return {
     workflowStatus,

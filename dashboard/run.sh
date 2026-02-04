@@ -41,8 +41,18 @@ cd "$SCRIPT_DIR/backend"
 python3 server.py &
 BACKEND_PID=$!
 
-# Wait for backend to start
-sleep 2
+# Wait for backend to start (polling health endpoint)
+MAX_ATTEMPTS=20
+ATTEMPT=0
+until curl -s http://localhost:8080/ > /dev/null; do
+    ATTEMPT=$((ATTEMPT+1))
+    if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+        echo "Error: Backend did not start within expected time."
+        kill $BACKEND_PID 2>/dev/null || true
+        exit 1
+    fi
+    sleep 0.5
+done
 
 # Start frontend
 echo "Starting frontend on http://localhost:3000..."

@@ -32,33 +32,47 @@ export function useCanvasInteractions({
     [setEdges]
   );
 
-  // Handle dropping an agent onto the canvas
+  // Handle dropping an agent or node onto the canvas
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
 
-      const agentData = event.dataTransfer.getData('application/agent');
-      if (!agentData) return;
-
-      const agent: Agent = JSON.parse(agentData);
       const position = {
         x: event.clientX - 300,
         y: event.clientY - 100,
       };
 
-      const newNode: Node = {
-        id: `agent-${nodeIdCounter.current++}`,
-        type: 'agent',
-        position,
-        data: {
-          label: `:${agent.port}`,
-          agent,
-          status: 'idle',
-          response: '',
-        },
-      };
+      // Handle agent drops from sidebar
+      const agentData = event.dataTransfer.getData('application/agent');
+      if (agentData) {
+        const agent: Agent = JSON.parse(agentData);
+        const newNode: Node = {
+          id: `agent-${nodeIdCounter.current++}`,
+          type: 'agent',
+          position,
+          data: {
+            label: `:${agent.port}`,
+            agent,
+            status: 'idle',
+            response: '',
+          },
+        };
+        setNodes((nds) => [...nds, newNode]);
+        return;
+      }
 
-      setNodes((nds) => [...nds, newNode]);
+      // Handle node palette drops
+      const nodeData = event.dataTransfer.getData('application/reactflow-node');
+      if (nodeData) {
+        const { type, data } = JSON.parse(nodeData);
+        const newNode: Node = {
+          id: `${type}-${nodeIdCounter.current++}`,
+          type,
+          position,
+          data,
+        };
+        setNodes((nds) => [...nds, newNode]);
+      }
     },
     [setNodes]
   );
@@ -75,12 +89,24 @@ export function useCanvasInteractions({
     event.dataTransfer.effectAllowed = 'move';
   }, []);
 
-  // Handle node click to open block editor
+  // Handle node click to open block editor (all node types)
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-    if (node.type === 'agent') {
-      setSelectedNodeId(node.id);
-    }
+    setSelectedNodeId(node.id);
   }, []);
+
+  // Handle adding node from palette click (not drag)
+  const handleAddNode = useCallback(
+    (type: string, data: Record<string, unknown>) => {
+      const newNode: Node = {
+        id: `${type}-${nodeIdCounter.current++}`,
+        type,
+        position: { x: 400, y: 200 },
+        data,
+      };
+      setNodes((nds) => [...nds, newNode]);
+    },
+    [setNodes]
+  );
 
   // Close block editor when clicking on canvas background
   const onPaneClick = useCallback(() => {
@@ -128,5 +154,6 @@ export function useCanvasInteractions({
     onPaneClick,
     handleUpdateNodeData,
     handleAutoArrange,
+    handleAddNode,
   };
 }

@@ -1,15 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ReactFlow,
   Controls,
   Background,
   useNodesState,
   useEdgesState,
-  addEdge,
-  useReactFlow,
   ReactFlowProvider,
   BackgroundVariant,
-  type Connection,
   type Node,
   type Edge,
   type NodeTypes,
@@ -39,14 +36,16 @@ import MonitoringLayout from './components/MonitoringLayout';
 import PromptsTab from './components/PromptsTab';
 import ProjectSelector from './components/ProjectSelector';
 import { useStore } from './store';
-import { promptWorkflowTemplates, type PromptWorkflowTemplate } from './promptWorkflowTemplates';
-import { validateOutput, generateRetryPrompt } from './utils/outputValidator';
-import { getHierarchicalLayout } from './utils/canvasLayout';
-import { formatErrorForToast } from './utils/errorMessages';
+import { promptWorkflowTemplates } from './promptWorkflowTemplates';
 import { initializeMockData } from './utils/mockData';
-import { getExecutionOrder } from './utils/workflowVariables';
 import { loadPrompts } from './services/promptService';
-import type { Agent, Instance, TaskQueues, FailureState, OrchestratorEvent, PromptMetrics, PromptBlockNodeData, VariableBinding } from './types';
+
+// Hooks
+import { useWebSocket, createPromptSender } from './hooks/useWebSocket';
+import { useCanvasInteractions } from './hooks/useCanvasInteractions';
+import { useWorkflowExecution } from './hooks/useWorkflowExecution';
+import { useMonitoring } from './hooks/useMonitoring';
+import { useFlowManagement } from './hooks/useFlowManagement';
 
 const nodeTypes: NodeTypes = {
   prompt: PromptNode,
@@ -65,37 +64,23 @@ const nodeTypes: NodeTypes = {
 // Get initial template
 const defaultTemplate = promptWorkflowTemplates[0];
 const initialNodes: Node[] = defaultTemplate.nodes;
-const defaultEdges: Edge[] = defaultTemplate.edges;
-
-const initialEdges: Edge[] = defaultEdges;
-
-// Helper to safely access node data
-function getAgentFromNode(node: Node): Agent | null {
-  const data = node.data as { agent?: Agent };
-  return data?.agent || null;
-}
+const initialEdges: Edge[] = defaultTemplate.edges;
 
 function AppContent() {
   const {
     agents,
-    setAgents,
-    addActivity,
     connected,
-    setConnected,
     addToast,
     viewMode,
     setViewMode,
     setInstances,
     setTasks,
     setFailures,
-    updateFailure,
     addEvent,
     setPromptMetrics,
-    getPromptTemplateById,
     setPromptTemplates,
     activeProjectPath,
   } = useStore();
-  const { fitView } = useReactFlow();
 
   // Initialize mock data on mount (for demo purposes)
   useEffect(() => {
@@ -123,286 +108,85 @@ function AppContent() {
     };
     fetchPrompts();
   }, [activeProjectPath, setPromptTemplates]);
+
+  // React Flow state
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [workflowStatus, setWorkflowStatus] = useState<'idle' | 'running' | 'complete'>('idle');
-  const [selectedTemplate, setSelectedTemplate] = useState<string>(defaultTemplate.id);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const isWorkflowRunningRef = useRef(false); // Ref-based guard for concurrent execution
 
-  // Get the selected node object
-  const selectedNode = selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) || null : null;
-  const nodeIdCounter = useRef(10);
+  // WebSocket connection
+  const { wsRef } = useWebSocket();
 
-  // Connect to backend WebSocket
+  // Create prompt sender from WebSocket ref
+  const sendPromptToAgent = useMemo(
+    () => createPromptSender(wsRef),
+    [wsRef]
+  );
+
+  // Workflow execution
+  const {
+    setWorkflowStatus,
+    runWorkflow,
+    runPromptBlockWorkflow,
+  } = useWorkflowExecution({
+    nodes,
+    edges,
+    setNodes,
+    sendPromptToAgent,
+  });
+
+  // Store refs for callbacks (to avoid infinite loops)
+  const runWorkflowRef = useRef(runWorkflow);
+  runWorkflowRef.current = runWorkflow;
+  const runPromptBlockWorkflowRef = useRef(runPromptBlockWorkflow);
+  runPromptBlockWorkflowRef.current = runPromptBlockWorkflow;
+
+  // Flow management (templates and loading)
+  const {
+    selectedTemplate,
+    handleSelectTemplate,
+    handleLoadFlow,
+    initializeCallbacks,
+  } = useFlowManagement({
+    setNodes,
+    setEdges,
+    setWorkflowStatus,
+    runWorkflowRef,
+    runPromptBlockWorkflowRef,
+  });
+
+  // Canvas interactions
+  const {
+    setSelectedNodeId,
+    selectedNode,
+    onConnect,
+    onDrop,
+    onDragOver,
+    onDragStart,
+    onNodeClick,
+    onPaneClick,
+    handleUpdateNodeData,
+    handleAutoArrange,
+    handleAddNode,
+  } = useCanvasInteractions({
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+  });
+
+  // Monitoring commands
+  const {
+    handleSpawnInstance,
+    handleRetryFailure,
+    handleEscalateFailure,
+  } = useMonitoring({ wsRef, connected, viewMode });
+
+  // Initialize callbacks on mount
   useEffect(() => {
-    let reconnectTimeout: ReturnType<typeof setTimeout>;
-    let ws: WebSocket | null = null;
-
-    const connect = () => {
-      try {
-        // Connect directly to backend port
-        const wsUrl = `ws://localhost:8080/ws`;
-        console.log('Connecting to:', wsUrl);
-        ws = new WebSocket(wsUrl);
-
-        ws.onopen = () => {
-          console.log('Connected to backend');
-          setConnected(true);
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-
-            if (data.type === 'initial') {
-              setAgents(data.agents || []);
-              (data.activity || []).forEach((e: unknown) => addActivity(e as any));
-            } else if (data.type === 'agents_update') {
-              setAgents(data.agents || []);
-            } else if (data.type === 'agent_delta') {
-              // Delta update: update single agent's changed fields
-              const { instance_id, changes } = data;
-              setAgents((prev: Agent[]) =>
-                prev.map((agent) =>
-                  agent.instance_id === instance_id
-                    ? { ...agent, ...changes }
-                    : agent
-                )
-              );
-            } else if (data.type === 'agent_removed') {
-              // Agent removed from registry
-              const { instance_id } = data;
-              setAgents((prev: Agent[]) =>
-                prev.filter((agent) => agent.instance_id !== instance_id)
-              );
-            } else if (data.type === 'agent_added') {
-              // New agent added - add to list or update if exists
-              const newAgent = data.agent as Agent;
-              setAgents((prev: Agent[]) => {
-                const exists = prev.some((a) => a.instance_id === newAgent.instance_id);
-                if (exists) {
-                  // Update existing agent
-                  return prev.map((a) =>
-                    a.instance_id === newAgent.instance_id ? newAgent : a
-                  );
-                }
-                // Add new agent
-                return [...prev, newAgent];
-              });
-            } else if (data.type === 'activity') {
-              addActivity(data.event);
-              handleActivityEvent(data.event);
-            } else if (data.type === 'prompt_result') {
-              handlePromptResult(data.instance_id, data.result);
-            } else if (data.type === 'spawn_result') {
-              console.log('Spawn result:', data);
-              if (data.error) {
-                const { title, description } = formatErrorForToast(data.error);
-                addToast({
-                  type: 'error',
-                  title,
-                  message: description,
-                });
-              } else {
-                addToast({
-                  type: 'success',
-                  title: 'Agent Launched',
-                  message: 'New agent is starting up...',
-                  duration: 3000,
-                });
-              }
-            }
-            // Self-Healing Test Architecture Messages
-            else if (data.type === 'instances_update') {
-              setInstances(data.instances as Instance[]);
-            } else if (data.type === 'tasks_update') {
-              setTasks({
-                inbound: data.inbound || [],
-                work: data.work || [],
-                result: data.result || [],
-              } as TaskQueues);
-            } else if (data.type === 'failure_update') {
-              if (data.failure) {
-                updateFailure(data.failure.id, data.failure as Partial<FailureState>);
-              }
-            } else if (data.type === 'failures_list') {
-              setFailures(data.failures as FailureState[]);
-            } else if (data.type === 'orchestrator_event') {
-              addEvent(data.event as OrchestratorEvent);
-            } else if (data.type === 'prompt_metrics') {
-              setPromptMetrics(data.metrics as PromptMetrics[]);
-            }
-          } catch (err) {
-            console.error('Error parsing message:', err);
-          }
-        };
-
-        ws.onclose = () => {
-          console.log('Disconnected from backend');
-          setConnected(false);
-          reconnectTimeout = setTimeout(connect, 3000);
-        };
-
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          setConnected(false);
-        };
-
-        wsRef.current = ws;
-      } catch (err) {
-        console.error('Failed to create WebSocket:', err);
-        setConnected(false);
-        reconnectTimeout = setTimeout(connect, 3000);
-      }
-    };
-
-    connect();
-
-    return () => {
-      clearTimeout(reconnectTimeout);
-      ws?.close();
-    };
+    initializeCallbacks();
   }, []);
 
-  const handleActivityEvent = useCallback((event: { event_type: string; instance_id: string; response?: string }) => {
-    if (event.event_type === 'prompt_response') {
-      setNodes((nds) =>
-        nds.map((node) => {
-          const agent = getAgentFromNode(node);
-          if (node.type === 'agent' && agent?.instance_id === event.instance_id) {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                status: 'success',
-                response: event.response,
-              },
-            };
-          }
-          return node;
-        })
-      );
-    }
-  }, [setNodes]);
-
-  const handlePromptResult = useCallback((instanceId: string, result: { error?: string; content?: string }) => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        const agent = getAgentFromNode(node);
-        if (node.type === 'agent' && agent?.instance_id === instanceId) {
-          const isError = !!result.error;
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              status: isError ? 'error' : 'success',
-              response: result.content || result.error,
-            },
-          };
-        }
-        return node;
-      })
-    );
-  }, [setNodes]);
-
-  const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
-    [setEdges]
-  );
-
-  const onDrop = useCallback(
-    (event: React.DragEvent) => {
-      event.preventDefault();
-
-      const position = {
-        x: event.clientX - 300,
-        y: event.clientY - 100,
-      };
-
-      // Handle agent drops from sidebar
-      const agentData = event.dataTransfer.getData('application/agent');
-      if (agentData) {
-        const agent: Agent = JSON.parse(agentData);
-        const newNode: Node = {
-          id: `agent-${nodeIdCounter.current++}`,
-          type: 'agent',
-          position,
-          data: {
-            label: `:${agent.port}`,
-            agent,
-            status: 'idle',
-            response: '',
-          },
-        };
-        setNodes((nds) => [...nds, newNode]);
-        return;
-      }
-
-      // Handle node palette drops
-      const nodeData = event.dataTransfer.getData('application/reactflow-node');
-      if (nodeData) {
-        const { type, data } = JSON.parse(nodeData);
-        const newNode: Node = {
-          id: `${type}-${nodeIdCounter.current++}`,
-          type,
-          position,
-          data,
-        };
-        setNodes((nds) => [...nds, newNode]);
-      }
-    },
-    [setNodes]
-  );
-
-  const onDragOver = useCallback((event: React.DragEvent) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-  }, []);
-
-  const onDragStart = useCallback((event: React.DragEvent, agent: Agent) => {
-    event.dataTransfer.setData('application/agent', JSON.stringify(agent));
-    event.dataTransfer.effectAllowed = 'move';
-  }, []);
-
-  // Handle adding node from palette click
-  const handleAddNode = useCallback(
-    (type: string, data: Record<string, unknown>) => {
-      // Add node to center-right of canvas
-      const newNode: Node = {
-        id: `${type}-${nodeIdCounter.current++}`,
-        type,
-        position: { x: 400, y: 200 },
-        data,
-      };
-      setNodes((nds) => [...nds, newNode]);
-    },
-    [setNodes]
-  );
-
-  // Handle node click to open block editor
-  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-    setSelectedNodeId(node.id);
-  }, []);
-
-  // Handle updating node data from BlockEditor
-  const handleUpdateNodeData = useCallback((nodeId: string, updates: Record<string, unknown>) => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === nodeId) {
-          return { ...node, data: { ...node.data, ...updates } };
-        }
-        return node;
-      })
-    );
-  }, [setNodes]);
-
-  // Close block editor when clicking on canvas background
-  const onPaneClick = useCallback(() => {
-    setSelectedNodeId(null);
-  }, []);
-
+  // Spawn agent handler
   const onSpawnAgent = useCallback((projectPath: string) => {
     if (!wsRef.current) {
       console.error('WebSocket not connected');
@@ -419,1117 +203,7 @@ function AppContent() {
       type: 'spawn_agent',
       project_path: projectPath,
     }));
-  }, [addToast]);
-
-  // Auto-arrange nodes in hierarchical layout
-  const handleAutoArrange = useCallback(() => {
-    const arrangedNodes = getHierarchicalLayout(nodes, edges);
-    setNodes(arrangedNodes);
-
-    // Fit view after a short delay to allow layout to settle
-    setTimeout(() => {
-      fitView({ padding: 0.2, duration: 300 });
-    }, 50);
-
-    addToast({
-      type: 'info',
-      title: 'Layout Applied',
-      message: 'Nodes arranged in hierarchical layout.',
-      duration: 2000,
-    });
-  }, [nodes, edges, setNodes, fitView, addToast]);
-
-  // Supervisor-based workflow execution
-  const runSupervisorWorkflow = useCallback(async (prompt: string) => {
-    if (!wsRef.current || workflowStatus === 'running') return;
-
-    setWorkflowStatus('running');
-    const results: Array<{ label: string; response: string; timestamp: string; port?: number }> = [];
-    const history: Array<{ step: number; action: string; agent?: string; result?: string }> = [];
-    let stepCount = 0;
-
-    // Reset all nodes
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.type === 'supervisor') {
-          return { ...node, data: { ...node.data, status: 'thinking', history: [], currentStep: 'Analyzing task...' } };
-        }
-        if (node.type === 'agent') {
-          return { ...node, data: { ...node.data, status: 'idle', prompt: '', response: '' } };
-        }
-        if (node.type === 'output') {
-          return { ...node, data: { ...node.data, status: 'idle', results: [] } };
-        }
-        return node;
-      })
-    );
-
-    // Get connected agents from the canvas
-    const agentNodes = nodes.filter(n => n.type === 'agent');
-    const connectedAgents = agentNodes
-      .map(n => getAgentFromNode(n))
-      .filter((a): a is Agent => a !== null && a.connected);
-
-    if (connectedAgents.length === 0) {
-      setNodes((nds) =>
-        nds.map((node) => {
-          if (node.type === 'supervisor') {
-            return { ...node, data: { ...node.data, status: 'idle', currentStep: 'No agents connected!' } };
-          }
-          return node;
-        })
-      );
-      setWorkflowStatus('idle');
-      return;
-    }
-
-    // Supervisor decides which agent to use first
-    stepCount++;
-    history.push({ step: stepCount, action: 'analyze', result: `Task: ${prompt.slice(0, 50)}...` });
-
-    // Update supervisor with analysis step
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.type === 'supervisor') {
-          return { ...node, data: { ...node.data, status: 'routing', history: [...history], currentStep: 'Routing to first agent...' } };
-        }
-        return node;
-      })
-    );
-
-    // Simple routing: use agents in order they appear on canvas
-    let currentPrompt = prompt;
-    const maxIterations = Math.min(connectedAgents.length * 2, 10); // Prevent infinite loops
-    let iterations = 0;
-
-    for (const agent of connectedAgents) {
-      if (iterations >= maxIterations) break;
-      iterations++;
-
-      // Find the agent node
-      const agentNode = agentNodes.find(n => {
-        const a = getAgentFromNode(n);
-        return a?.instance_id === agent.instance_id;
-      });
-
-      if (!agentNode) continue;
-
-      // Get node config for display
-      const preNodeData = agentNode.data as { label?: string };
-      const displayLabel = preNodeData.label || `:${agent.port}`;
-
-      stepCount++;
-      history.push({ step: stepCount, action: 'route', agent: `${displayLabel} :${agent.port}` });
-
-      // Update supervisor and agent status
-      setNodes((nds) =>
-        nds.map((node) => {
-          if (node.type === 'supervisor') {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                history: [...history],
-                currentStep: `Waiting for ${displayLabel}...`
-              }
-            };
-          }
-          if (node.id === agentNode.id) {
-            return { ...node, data: { ...node.data, status: 'running', prompt: currentPrompt } };
-          }
-          return node;
-        })
-      );
-
-      // Send to agent with validation and retry logic
-      const nodeData = agentNode.data as {
-        outputType?: string;
-        outputSchema?: string;
-        label?: string;
-      };
-      const outputType = nodeData.outputType || 'text';
-      const outputSchema = nodeData.outputSchema;
-      const nodeLabel = nodeData.label || 'Agent';
-
-      const maxRetries = 2;
-      let retryCount = 0;
-      let finalResponse = '';
-      let isError = false;
-      let promptToSend = currentPrompt;
-
-      while (retryCount <= maxRetries) {
-        const result = await sendPromptToAgent(agent.instance_id, promptToSend);
-        isError = !!result.error;
-        const response = result.content || result.error || 'No response';
-
-        if (isError) {
-          finalResponse = response;
-          break;
-        }
-
-        // Validate output against expected type and schema
-        const validation = validateOutput(response, outputType, outputSchema);
-
-        if (validation.valid) {
-          finalResponse = response;
-
-          // Update agent with validated response
-          setNodes((nds) =>
-            nds.map((node) => {
-              if (node.id === agentNode.id) {
-                return {
-                  ...node,
-                  data: {
-                    ...node.data,
-                    status: 'success',
-                    response
-                  }
-                };
-              }
-              return node;
-            })
-          );
-          break;
-        }
-
-        // Validation failed - retry if we have attempts left
-        retryCount++;
-        if (retryCount <= maxRetries) {
-          stepCount++;
-          history.push({
-            step: stepCount,
-            action: 'validate_failed',
-            agent: `Agent :${agent.port}`,
-            result: `Retry ${retryCount}/${maxRetries}: ${validation.errors.join(', ')}`
-          });
-
-          // Update status to show retrying
-          setNodes((nds) =>
-            nds.map((node) => {
-              if (node.type === 'supervisor') {
-                return {
-                  ...node,
-                  data: {
-                    ...node.data,
-                    history: [...history],
-                    currentStep: `Retrying Agent :${agent.port} (${retryCount}/${maxRetries})...`
-                  }
-                };
-              }
-              if (node.id === agentNode.id) {
-                return {
-                  ...node,
-                  data: {
-                    ...node.data,
-                    status: 'waiting',
-                    response: `Validation failed: ${validation.errors.join(', ')}`
-                  }
-                };
-              }
-              return node;
-            })
-          );
-
-          // Generate retry prompt
-          let schema = {};
-          try {
-            if (outputSchema) schema = JSON.parse(outputSchema);
-          } catch { /* ignore */ }
-
-          promptToSend = generateRetryPrompt(
-            currentPrompt,
-            response,
-            outputType,
-            schema,
-            validation
-          );
-
-          await new Promise(resolve => setTimeout(resolve, 500));
-        } else {
-          // Max retries reached, use last response anyway
-          finalResponse = response;
-          stepCount++;
-          history.push({
-            step: stepCount,
-            action: 'max_retries',
-            agent: `Agent :${agent.port}`,
-            result: `Using response despite validation errors: ${validation.errors.join(', ')}`
-          });
-        }
-      }
-
-      // Update agent with final response
-      setNodes((nds) =>
-        nds.map((node) => {
-          if (node.id === agentNode.id) {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                status: isError ? 'error' : 'success',
-                response: finalResponse
-              }
-            };
-          }
-          return node;
-        })
-      );
-
-      results.push({
-        label: nodeLabel,
-        response: finalResponse,
-        timestamp: new Date().toISOString(),
-        port: agent.port,
-      });
-
-      // Update history with result summary
-      history[history.length - 1].result = finalResponse.slice(0, 100) + (finalResponse.length > 100 ? '...' : '');
-
-      // Prepare prompt for next agent (if any)
-      if (!isError) {
-        currentPrompt = `Previous agent's output:\n${finalResponse}\n\nPlease review and continue or improve this work.`;
-      }
-
-      // Small delay between agents for visual effect
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    // Mark workflow complete
-    stepCount++;
-    history.push({ step: stepCount, action: 'complete', result: 'Workflow finished' });
-
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.type === 'supervisor') {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              status: 'complete',
-              history: [...history],
-              currentStep: 'Workflow complete',
-              decision: `Processed by ${results.length} agent(s)`
-            }
-          };
-        }
-        if (node.type === 'output') {
-          return { ...node, data: { ...node.data, status: 'complete', results } };
-        }
-        return node;
-      })
-    );
-
-    setWorkflowStatus('complete');
-  }, [nodes, workflowStatus, setNodes]);
-
-  // Legacy sequential workflow (keeping for backward compatibility)
-  const runWorkflow = useCallback(async (prompt: string) => {
-    // Check if we have a supervisor node
-    const hasSupervisor = nodes.some(n => n.type === 'supervisor');
-    if (hasSupervisor) {
-      return runSupervisorWorkflow(prompt);
-    }
-
-    // Original sequential logic for non-supervisor workflows
-    if (!wsRef.current || workflowStatus === 'running') return;
-
-    setWorkflowStatus('running');
-
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.type === 'prompt') {
-          return { ...node, data: { ...node.data, status: 'running', prompt } };
-        }
-        if (node.type === 'agent') {
-          return { ...node, data: { ...node.data, status: 'idle', response: '' } };
-        }
-        if (node.type === 'output') {
-          return { ...node, data: { ...node.data, status: 'idle', results: [] } };
-        }
-        return node;
-      })
-    );
-
-    const agentNodes = getWorkflowOrder(nodes, edges);
-    const results: Array<{ label: string; response: string; timestamp: string; port?: number }> = [];
-
-    let currentPrompt = prompt;
-
-    for (const agentNode of agentNodes) {
-      const agent = getAgentFromNode(agentNode);
-      if (!agent || !agent.connected) continue;
-
-      setNodes((nds) =>
-        nds.map((node) =>
-          node.id === agentNode.id
-            ? { ...node, data: { ...node.data, status: 'running', prompt: currentPrompt } }
-            : node
-        )
-      );
-
-      const result = await sendPromptToAgent(agent.instance_id, currentPrompt);
-
-      const isError = !!result.error;
-      const response = result.content || result.error || 'No response';
-
-      setNodes((nds) =>
-        nds.map((node) =>
-          node.id === agentNode.id
-            ? {
-                ...node,
-                data: {
-                  ...node.data,
-                  status: isError ? 'error' : 'success',
-                  response,
-                },
-              }
-            : node
-        )
-      );
-
-      results.push({
-        label: `:${agent.port}`,
-        response,
-        timestamp: new Date().toISOString(),
-        port: agent.port,
-      });
-
-      if (!isError && response) {
-        currentPrompt = `Previous step (:${agent.port}) output:\n${response}\n\nContinue with the workflow.`;
-      }
-    }
-
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.type === 'output') {
-          return { ...node, data: { ...node.data, status: 'complete', results } };
-        }
-        if (node.type === 'prompt') {
-          return { ...node, data: { ...node.data, status: 'success' } };
-        }
-        return node;
-      })
-    );
-
-    setWorkflowStatus('complete');
-  }, [nodes, edges, workflowStatus, setNodes, runSupervisorWorkflow]);
-
-  const sendPromptToAgent = (instanceId: string, prompt: string): Promise<{ error?: string; content?: string }> => {
-    return new Promise((resolve) => {
-      if (!wsRef.current) {
-        resolve({ error: 'Not connected' });
-        return;
-      }
-
-      // Generate unique request ID to match response correctly
-      const requestId = `${instanceId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      console.log(`[Workflow] Sending request ${requestId} to agent ${instanceId}`);
-
-      const handler = (event: MessageEvent) => {
-        const data = JSON.parse(event.data);
-        // Match by request_id if available, otherwise fall back to instance_id
-        const isMatch = data.type === 'prompt_result' &&
-          (data.request_id === requestId || (!data.request_id && data.instance_id === instanceId));
-
-        if (isMatch) {
-          console.log(`[Workflow] Received response for request ${requestId}`);
-          wsRef.current?.removeEventListener('message', handler);
-          resolve(data.result);
-        }
-      };
-
-      wsRef.current.addEventListener('message', handler);
-
-      wsRef.current.send(JSON.stringify({
-        type: 'send_prompt',
-        instance_id: instanceId,
-        request_id: requestId,
-        prompt,
-      }));
-
-      setTimeout(() => {
-        wsRef.current?.removeEventListener('message', handler);
-        resolve({ error: 'Timeout' });
-      }, 120000);
-    });
-  };
-
-  const getWorkflowOrder = (nodes: Node[], edges: Edge[]): Node[] => {
-    const order: Node[] = [];
-    const visited = new Set<string>();
-
-    const promptNode = nodes.find((n) => n.type === 'prompt');
-    if (!promptNode) return order;
-
-    const queue: string[] = [promptNode.id];
-    visited.add(promptNode.id);
-
-    while (queue.length > 0) {
-      const currentId = queue.shift()!;
-      const currentNode = nodes.find((n) => n.id === currentId);
-
-      if (currentNode?.type === 'agent') {
-        order.push(currentNode);
-      }
-
-      const connectedEdges = edges.filter((e) => e.source === currentId);
-      for (const edge of connectedEdges) {
-        if (!visited.has(edge.target)) {
-          visited.add(edge.target);
-          queue.push(edge.target);
-        }
-      }
-    }
-
-    return order;
-  };
-
-  // Helper: Substitute variables in a template string
-  // - {{input}} always comes from workflow start
-  // - Any other variable auto-resolves to the most recent upstream output
-  // - Static bindings override auto-resolution
-  const substituteTemplateVariables = (
-    template: string,
-    bindings: VariableBinding[],
-    workflowInput: string,
-    nodeOutputs: Record<string, unknown>
-  ): string => {
-    let result = template;
-    const variableRegex = /\{\{(\w+)\}\}/g;
-
-    // Get all upstream outputs as a flat list (most recent first)
-    const upstreamValues: string[] = [];
-    for (const nodeId of Object.keys(nodeOutputs).reverse()) {
-      const outputs = nodeOutputs[nodeId];
-      if (outputs && typeof outputs === 'object') {
-        const outputObj = outputs as Record<string, unknown>;
-        // Get the first value from this node's outputs
-        const firstKey = Object.keys(outputObj)[0];
-        if (firstKey) {
-          const value = outputObj[firstKey];
-          const strValue = typeof value === 'string' ? value : JSON.stringify(value);
-          upstreamValues.push(strValue);
-        }
-      }
-    }
-
-    result = result.replace(variableRegex, (_match, varName) => {
-      // {{input}} always comes from workflow start
-      if (varName === 'input') {
-        return workflowInput;
-      }
-
-      // Check for static binding override
-      const binding = bindings.find((b) => b.variableName === varName);
-      if (binding?.source === 'static') {
-        return binding.staticValue || '';
-      }
-
-      // Auto-resolve: First try exact name match in upstream outputs
-      for (const nodeId of Object.keys(nodeOutputs)) {
-        const outputs = nodeOutputs[nodeId];
-        if (outputs && typeof outputs === 'object') {
-          const outputObj = outputs as Record<string, unknown>;
-          if (varName in outputObj) {
-            const value = outputObj[varName];
-            return typeof value === 'string' ? value : JSON.stringify(value);
-          }
-        }
-      }
-
-      // Auto-resolve: If no exact match, use the most recent upstream output
-      // This allows {{code}}, {{analysis}}, etc. to all resolve to upstream data
-      if (upstreamValues.length > 0) {
-        return upstreamValues[0];
-      }
-
-      // Last resort: if no upstream, use workflow input for any variable
-      // This handles templates that use {{code}} when input is actually {{input}}
-      return workflowInput;
-    });
-
-    return result;
-  };
-
-  // Helper: Extract output from response based on template config
-  const extractTemplateOutput = (
-    response: string,
-    mode: string,
-    pattern?: string
-  ): unknown => {
-    switch (mode) {
-      case 'json':
-        try {
-          return JSON.parse(response);
-        } catch {
-          return response;
-        }
-      case 'jsonpath':
-        // Simple JSONPath implementation for common cases
-        if (pattern) {
-          try {
-            const json = JSON.parse(response);
-            const path = pattern.replace(/^\$\.?/, '').split('.');
-            let value: unknown = json;
-            for (const key of path) {
-              if (value && typeof value === 'object') {
-                value = (value as Record<string, unknown>)[key];
-              } else {
-                return response;
-              }
-            }
-            return value;
-          } catch {
-            return response;
-          }
-        }
-        return response;
-      case 'regex':
-        if (pattern) {
-          const match = response.match(new RegExp(pattern));
-          return match ? match[1] || match[0] : response;
-        }
-        return response;
-      case 'first_line':
-        return response.split('\n')[0];
-      case 'full':
-      default:
-        return response;
-    }
-  };
-
-  // Run prompt block workflow with reference-based architecture
-  const runPromptBlockWorkflow = useCallback(async (input: string) => {
-    console.log('[Workflow] runPromptBlockWorkflow called, isRunning:', isWorkflowRunningRef.current);
-
-    // Use ref for immediate guard (React state is async)
-    if (!wsRef.current || isWorkflowRunningRef.current) {
-      console.log('[Workflow] BLOCKED - already running or no websocket');
-      return;
-    }
-
-    // Set ref immediately to block concurrent calls
-    isWorkflowRunningRef.current = true;
-    setWorkflowStatus('running');
-    console.log('[Workflow] Started workflow execution');
-
-    try {
-    // Context for variable substitution
-    const nodeOutputs: Record<string, unknown> = {};
-
-    // Reset all nodes - set promptBlocks and httpRequest to 'waiting' to show they're queued
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.type === 'workflowStart') {
-          return { ...node, data: { ...node.data, status: 'running' } };
-        }
-        if (node.type === 'promptBlock') {
-          return {
-            ...node,
-            data: { ...node.data, status: 'waiting', resolvedPrompt: '', response: '', extractedOutput: null },
-          };
-        }
-        if (node.type === 'httpRequest') {
-          return {
-            ...node,
-            data: { ...node.data, status: 'idle', response: undefined, error: undefined },
-          };
-        }
-        if (node.type === 'output') {
-          return { ...node, data: { ...node.data, status: 'idle', results: [] } };
-        }
-        return node;
-      })
-    );
-
-    // Force UI to show waiting states
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // Get execution order
-    const executableNodes = nodes.filter(n => n.type === 'promptBlock' || n.type === 'httpRequest');
-    console.log('[Workflow] ===== WORKFLOW DEBUG =====');
-    console.log('[Workflow] All nodes:', nodes.map(n => `${n.id} (${n.type})`));
-    console.log('[Workflow] Executable nodes:', executableNodes.map(n => `${n.id} (${n.type})`));
-    console.log('[Workflow] All edges:', edges);
-    console.log('[Workflow] Edge connections:', edges.map(e => `${e.source} -> ${e.target}`));
-
-    const executionOrder = getExecutionOrder(nodes, edges);
-    console.log('[Workflow] Execution order (all):', executionOrder);
-
-    const executableInOrder = executionOrder.filter(id => executableNodes.some(n => n.id === id));
-    console.log('[Workflow] Nodes to execute in order:', executableInOrder);
-    console.log('[Workflow] ===========================');
-    const results: Array<{ label: string; response: string; output: unknown }> = [];
-
-    // Execute nodes in order (SEQUENTIAL - each must complete before next starts)
-    for (const nodeId of executionOrder) {
-      const node = nodes.find((n) => n.id === nodeId);
-      if (!node || (node.type !== 'promptBlock' && node.type !== 'httpRequest')) continue;
-
-      // Handle HTTP Request nodes
-      if (node.type === 'httpRequest') {
-        const httpData = node.data as {
-          label?: string;
-          method?: string;
-          url?: string;
-          headers?: Record<string, string>;
-          body?: string;
-        };
-
-        // Substitute variables in URL and body
-        let resolvedUrl = httpData.url || '';
-        let resolvedBody = httpData.body || '';
-
-        // Simple variable substitution for URL and body
-        const variableRegex = /\{\{(\w+)\}\}/g;
-        resolvedUrl = resolvedUrl.replace(variableRegex, (_match, varName) => {
-          if (varName === 'input') return input;
-          for (const nid of Object.keys(nodeOutputs)) {
-            const outputs = nodeOutputs[nid];
-            if (outputs && typeof outputs === 'object') {
-              const outputObj = outputs as Record<string, unknown>;
-              if (varName in outputObj) {
-                const value = outputObj[varName];
-                return typeof value === 'string' ? value : JSON.stringify(value);
-              }
-            }
-          }
-          return input;
-        });
-
-        resolvedBody = resolvedBody.replace(variableRegex, (_match, varName) => {
-          if (varName === 'input') return input;
-          for (const nid of Object.keys(nodeOutputs)) {
-            const outputs = nodeOutputs[nid];
-            if (outputs && typeof outputs === 'object') {
-              const outputObj = outputs as Record<string, unknown>;
-              if (varName in outputObj) {
-                const value = outputObj[varName];
-                return typeof value === 'string' ? value : JSON.stringify(value);
-              }
-            }
-          }
-          return input;
-        });
-
-        // Update node to show pending state
-        setNodes((nds) =>
-          nds.map((n) =>
-            n.id === nodeId
-              ? { ...n, data: { ...n.data, status: 'pending' } }
-              : n
-          )
-        );
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        try {
-          console.log(`[Workflow] >>> HTTP REQUEST ${nodeId}: ${httpData.method} ${resolvedUrl}`);
-          const response = await fetch('/api/http/execute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              method: httpData.method || 'GET',
-              url: resolvedUrl,
-              headers: httpData.headers,
-              body: resolvedBody ? JSON.parse(resolvedBody) : undefined,
-            }),
-          });
-
-          const result = await response.json();
-          console.log(`[Workflow] <<< HTTP RESPONSE ${nodeId}:`, result);
-
-          const isError = !!result.error || result.status >= 400;
-
-          // Store response data for downstream nodes
-          nodeOutputs[nodeId] = { response: result.data, status: result.status };
-
-          setNodes((nds) =>
-            nds.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: isError ? 'error' : 'success',
-                      response: result.error ? undefined : result,
-                      error: result.error,
-                    },
-                  }
-                : n
-            )
-          );
-
-          results.push({
-            label: httpData.label || 'HTTP Request',
-            response: JSON.stringify(result.data),
-            output: result.data,
-          });
-        } catch (err) {
-          console.error(`[Workflow] HTTP ERROR ${nodeId}:`, err);
-          setNodes((nds) =>
-            nds.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: 'error',
-                      error: String(err),
-                    },
-                  }
-                : n
-            )
-          );
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        continue;
-      }
-
-      // Handle promptBlock nodes (existing logic)
-
-      const blockData = node.data as unknown as PromptBlockNodeData;
-
-      // Resolve agent reference from store (source of truth)
-      const targetAgent = blockData.agentId
-        ? agents.find((a) => a.instance_id === blockData.agentId)
-        : null;
-
-      // Skip if no agent or not connected
-      if (!targetAgent || !targetAgent.connected) {
-        setNodes((nds) =>
-          nds.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: 'error',
-                    response: blockData.agentId
-                      ? 'Agent not connected'
-                      : 'No agent selected',
-                  },
-                }
-              : n
-          )
-        );
-        continue;
-      }
-
-      // Resolve prompt template reference from store (source of truth)
-      const template = blockData.promptTemplateId
-        ? getPromptTemplateById(blockData.promptTemplateId)
-        : null;
-
-      if (!template) {
-        setNodes((nds) =>
-          nds.map((n) =>
-            n.id === nodeId
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    status: 'error',
-                    response: 'No prompt template selected',
-                  },
-                }
-              : n
-          )
-        );
-        continue;
-      }
-
-      // Substitute variables in template
-      const resolvedPrompt = substituteTemplateVariables(
-        template.template,
-        blockData.variableBindings || [],
-        input,
-        nodeOutputs
-      );
-
-      // Update node to show running state with resolved prompt
-      setNodes((nds) =>
-        nds.map((n) =>
-          n.id === nodeId
-            ? { ...n, data: { ...n.data, status: 'running', resolvedPrompt } }
-            : n
-        )
-      );
-
-      // Force UI to update before making API call
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Send prompt to agent
-      console.log(`[Workflow] >>> STARTING node ${nodeId} at ${new Date().toISOString()}`);
-      const result = await sendPromptToAgent(targetAgent.instance_id, resolvedPrompt);
-      console.log(`[Workflow] <<< COMPLETED node ${nodeId} at ${new Date().toISOString()}`);
-      const isError = !!result.error;
-      const response = result.content || result.error || 'No response';
-
-      // Extract output based on template configuration
-      const extractedOutput = extractTemplateOutput(
-        response,
-        template.outputExtraction.mode,
-        template.outputExtraction.pattern
-      );
-
-      // Store output for downstream nodes (keyed by output name)
-      nodeOutputs[nodeId] = { [template.outputExtraction.outputName]: extractedOutput };
-
-      // Update node with response
-      setNodes((nds) =>
-        nds.map((n) =>
-          n.id === nodeId
-            ? {
-                ...n,
-                data: {
-                  ...n.data,
-                  status: isError ? 'error' : 'success',
-                  response,
-                  extractedOutput,
-                },
-              }
-            : n
-        )
-      );
-
-      results.push({
-        label: blockData.label || template.name,
-        response,
-        output: extractedOutput,
-      });
-
-      // Small delay for visual effect
-      await new Promise((resolve) => setTimeout(resolve, 300));
-    }
-
-    // Update output node with results
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.type === 'workflowStart') {
-          return { ...node, data: { ...node.data, status: 'complete' } };
-        }
-        if (node.type === 'output') {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              status: 'complete',
-              results: results.map((r) => ({
-                label: r.label,
-                response: typeof r.output === 'string' ? r.output : JSON.stringify(r.output),
-                timestamp: new Date().toISOString(),
-              })),
-            },
-          };
-        }
-        return node;
-      })
-    );
-
-    setWorkflowStatus('complete');
-    } finally {
-      isWorkflowRunningRef.current = false;
-    }
-  }, [nodes, edges, setNodes, agents, getPromptTemplateById]);
-
-  // Use ref to avoid infinite loop with runWorkflow dependency
-  const runWorkflowRef = useRef(runWorkflow);
-  runWorkflowRef.current = runWorkflow;
-
-  const runPromptBlockWorkflowRef = useRef(runPromptBlockWorkflow);
-  runPromptBlockWorkflowRef.current = runPromptBlockWorkflow;
-
-  useEffect(() => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.type === 'prompt') {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              onSubmit: (prompt: string) => runWorkflowRef.current(prompt),
-            },
-          };
-        }
-        if (node.type === 'supervisor') {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              onStart: (prompt: string) => runWorkflowRef.current(prompt),
-            },
-          };
-        }
-        if (node.type === 'workflowStart') {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              onStart: (input: string) => runPromptBlockWorkflowRef.current(input),
-            },
-          };
-        }
-        return node;
-      })
-    );
-  }, []); // Only run once on mount
-
-  // Handle template selection (supports both WorkflowTemplate and PromptWorkflowTemplate)
-  const handleSelectTemplate = useCallback((template: PromptWorkflowTemplate) => {
-    setSelectedTemplate(template.id);
-    setWorkflowStatus('idle');
-
-    // Deep clone the template nodes and edges to avoid mutation
-    const newNodes = template.nodes.map(node => ({
-      ...node,
-      data: { ...node.data },
-    }));
-    const newEdges = template.edges.map(edge => ({ ...edge }));
-
-    setNodes(newNodes);
-    setEdges(newEdges);
-
-    // Re-attach callbacks after a tick
-    setTimeout(() => {
-      setNodes((nds) =>
-        nds.map((node) => {
-          if (node.type === 'supervisor') {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                onStart: (prompt: string) => runWorkflowRef.current(prompt),
-              },
-            };
-          }
-          if (node.type === 'workflowStart') {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                onStart: (input: string) => runPromptBlockWorkflowRef.current(input),
-              },
-            };
-          }
-          return node;
-        })
-      );
-    }, 0);
-  }, [setNodes, setEdges]);
-
-  // Handle loading a flow (from FlowManager)
-  const handleLoadFlow = useCallback((loadedNodes: Node[], loadedEdges: Edge[], templateId?: string) => {
-    setNodes(loadedNodes);
-    setEdges(loadedEdges);
-    if (templateId) {
-      setSelectedTemplate(templateId);
-    }
-    setWorkflowStatus('idle');
-
-    // Re-attach callbacks after loading
-    setTimeout(() => {
-      setNodes((nds) =>
-        nds.map((node) => {
-          if (node.type === 'supervisor') {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                onStart: (prompt: string) => runWorkflowRef.current(prompt),
-              },
-            };
-          }
-          if (node.type === 'workflowStart') {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                onStart: (input: string) => runPromptBlockWorkflowRef.current(input),
-              },
-            };
-          }
-          return node;
-        })
-      );
-    }, 0);
-  }, [setNodes, setEdges]);
-
-  // =====================
-  // Self-Healing Test Architecture Handlers
-  // =====================
-
-  // Spawn a new IntelliJ instance
-  const handleSpawnInstance = useCallback(() => {
-    if (!wsRef.current) {
-      addToast({
-        type: 'error',
-        title: 'Not Connected',
-        message: 'Cannot spawn instance while disconnected.',
-      });
-      return;
-    }
-
-    wsRef.current.send(JSON.stringify({ type: 'spawn_instance' }));
-    addToast({
-      type: 'info',
-      title: 'Spawning Instance',
-      message: 'New IntelliJ instance is starting...',
-      duration: 3000,
-    });
-  }, [addToast]);
-
-  // Retry a failed failure
-  const handleRetryFailure = useCallback((failureId: string) => {
-    if (!wsRef.current) {
-      addToast({
-        type: 'error',
-        title: 'Not Connected',
-        message: 'Cannot retry failure while disconnected.',
-      });
-      return;
-    }
-
-    wsRef.current.send(JSON.stringify({ type: 'retry_failure', failure_id: failureId }));
-    addToast({
-      type: 'info',
-      title: 'Retrying Failure',
-      message: `Retrying failure ${failureId.slice(0, 8)}...`,
-      duration: 3000,
-    });
-  }, [addToast]);
-
-  // Escalate a failure
-  const handleEscalateFailure = useCallback((failureId: string) => {
-    if (!wsRef.current) {
-      addToast({
-        type: 'error',
-        title: 'Not Connected',
-        message: 'Cannot escalate failure while disconnected.',
-      });
-      return;
-    }
-
-    wsRef.current.send(JSON.stringify({ type: 'escalate_failure', failure_id: failureId }));
-    addToast({
-      type: 'warning',
-      title: 'Failure Escalated',
-      message: `Failure ${failureId.slice(0, 8)} has been escalated.`,
-      duration: 3000,
-    });
-  }, [addToast]);
-
-  // Request initial monitoring data when switching to monitoring mode
-  useEffect(() => {
-    if (viewMode === 'monitoring' && wsRef.current && connected) {
-      // Request current state
-      wsRef.current.send(JSON.stringify({ type: 'get_failures' }));
-      wsRef.current.send(JSON.stringify({ type: 'get_instances' }));
-      wsRef.current.send(JSON.stringify({ type: 'get_tasks' }));
-      wsRef.current.send(JSON.stringify({ type: 'get_prompt_metrics' }));
-    }
-  }, [viewMode, connected]);
+  }, [addToast, wsRef]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-100">
@@ -1621,15 +295,15 @@ function AppContent() {
                 </ReactFlow>
               </div>
 
-            {/* Block Editor Panel */}
-            {selectedNode && (
-              <BlockEditor
-                node={selectedNode}
-                onClose={() => setSelectedNodeId(null)}
-                onUpdateNode={handleUpdateNodeData}
-              />
-            )}
-          </div>
+              {/* Block Editor Panel */}
+              {selectedNode && (
+                <BlockEditor
+                  node={selectedNode}
+                  onClose={() => setSelectedNodeId(null)}
+                  onUpdateNode={handleUpdateNodeData}
+                />
+              )}
+            </div>
           </>
         )}
 
