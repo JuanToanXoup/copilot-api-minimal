@@ -250,6 +250,8 @@ export const useStore = create<Store>((set, get) => ({
   events: [],
   addEvent: (event) => set((state) => {
     if (state.eventsPaused) return state;
+    // Prevent duplicate event IDs
+    if (state.events.some((e) => e.id === event.id)) return state;
     return {
       events: [event, ...state.events].slice(0, 200),
     };

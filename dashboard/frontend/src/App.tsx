@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -243,7 +243,7 @@ function AppContent() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden p-4 gap-4">
+      <div className="flex-1 flex overflow-hidden p-4 gap-4 min-h-0">
         {viewMode === 'prompts' && <PromptsTab />}
 
         {viewMode === 'workflow' && (
@@ -258,7 +258,7 @@ function AppContent() {
 
             <div className="flex-1 flex relative gap-4 min-h-0">
               {/* Canvas area */}
-              <div className="flex-1 relative min-h-0" style={{ height: '100%' }}>
+              <div className="flex-1 relative min-h-0" style={{ width: '100%', height: '100%' }}>
                 {/* Top toolbar */}
                 <div className="absolute top-4 left-4 right-4 z-10">
                   <div className="flex items-center justify-between">

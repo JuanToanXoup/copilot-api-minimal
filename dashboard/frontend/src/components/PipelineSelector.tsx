@@ -34,9 +34,17 @@ export default function PipelineSelector() {
       const data = await response.json();
       if (Array.isArray(data)) {
         setFlows(data);
+      } else if (data.error) {
+        console.error('Failed to fetch flows:', data.error);
+        setFlows([]);
+      } else {
+        // Unexpected response shape
+        console.warn('Unexpected flows response:', data);
+        setFlows([]);
       }
     } catch (error) {
       console.error('Failed to fetch flows:', error);
+      setFlows([]);
     }
   }, [activeProjectPath]);
 
@@ -45,9 +53,21 @@ export default function PipelineSelector() {
     try {
       const response = await fetch('/api/failures/workflow/active');
       const data = await response.json();
-      setActiveWorkflow(data);
+      // Handle error responses from the API
+      if (data.error) {
+        console.error('Failed to fetch active workflow:', data.error);
+        setActiveWorkflow({ active: false, workflow_id: null, workflow_name: null });
+        return;
+      }
+      // Ensure we have the expected shape
+      setActiveWorkflow({
+        active: data.active ?? false,
+        workflow_id: data.workflow_id ?? null,
+        workflow_name: data.workflow_name ?? null,
+      });
     } catch (error) {
       console.error('Failed to fetch active workflow:', error);
+      setActiveWorkflow({ active: false, workflow_id: null, workflow_name: null });
     }
   }, []);
 
@@ -66,7 +86,10 @@ export default function PipelineSelector() {
       const response = await fetch('/api/failures/workflow', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflow_id: workflowId }),
+        body: JSON.stringify({
+          workflow_id: workflowId,
+          project_path: activeProjectPath || undefined,
+        }),
       });
       const data = await response.json();
 
