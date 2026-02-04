@@ -1,6 +1,7 @@
 """Flow management API routes."""
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,8 +24,13 @@ def _get_flows_dir(project_path: str | None) -> Path:
 
 def _sanitize_filename(name: str) -> str:
     """Sanitize a name for use as a filename."""
-    safe = "".join(c for c in name if c.isalnum() or c in "-_ ").strip()
-    return safe or "unnamed"
+    # Allow alphanumeric, underscore, hyphen, period, and space
+    safe = re.sub(r'[^\w\s.\-]', '', name).strip()
+    # Replace spaces and multiple hyphens with single hyphen
+    safe = re.sub(r'[-\s]+', '-', safe).lower()
+    # Remove leading/trailing periods or hyphens
+    safe = safe.strip('.-')
+    return safe or 'unnamed'
 
 
 @router.get("")

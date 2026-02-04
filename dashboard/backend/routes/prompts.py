@@ -26,8 +26,12 @@ def _get_prompts_dir(project_path: str | None) -> Path:
 
 def _sanitize_filename(name: str) -> str:
     """Sanitize a name for use as a filename."""
-    safe = re.sub(r'[^\w\s-]', '', name).strip()
+    # Allow alphanumeric, underscore, hyphen, period, and space
+    safe = re.sub(r'[^\w\s.\-]', '', name).strip()
+    # Replace spaces and multiple hyphens with single hyphen
     safe = re.sub(r'[-\s]+', '-', safe).lower()
+    # Remove leading/trailing periods or hyphens
+    safe = safe.strip('.-')
     return safe or 'unnamed'
 
 
