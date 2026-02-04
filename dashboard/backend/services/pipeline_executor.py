@@ -164,43 +164,57 @@ class PipelineExecutor:
         """Load a workflow definition from storage.
 
         Searches project-specific location first, then falls back to global.
+        Matches by filename or by name field inside the JSON.
         """
-        def search_in_dir(flows_dir: Path) -> Optional[Path]:
-            """Search for workflow in a directory."""
+        def search_in_dir(flows_dir: Path) -> Optional[tuple[Path, dict]]:
+            """Search for workflow in a directory. Returns (path, data) if found."""
             if not flows_dir.exists():
                 return None
+
+            # First try exact filename match
             flow_path = flows_dir / f"{workflow_id}.json"
             if flow_path.exists():
-                return flow_path
-            # Search in subfolders
+                try:
+                    with open(flow_path) as f:
+                        return (flow_path, json.load(f))
+                except Exception:
+                    pass
+
+            # Search all JSON files by filename stem or by name field inside
             for file in flows_dir.rglob("*.json"):
+                # Check filename match
                 if file.stem == workflow_id:
-                    return file
+                    try:
+                        with open(file) as f:
+                            return (file, json.load(f))
+                    except Exception:
+                        continue
+
+                # Check name field inside JSON
+                try:
+                    with open(file) as f:
+                        data = json.load(f)
+                        if data.get("name") == workflow_id:
+                            return (file, data)
+                except Exception:
+                    continue
+
             return None
 
         # Try project-specific location first
         if project_path:
             project_paths = get_project_paths(project_path)
-            flow_path = search_in_dir(project_paths["flows_dir"])
-            if flow_path:
-                try:
-                    with open(flow_path) as f:
-                        return json.load(f)
-                except Exception as e:
-                    print(f"Error loading workflow {workflow_id}: {e}")
+            result = search_in_dir(project_paths["flows_dir"])
+            if result:
+                return result[1]  # Return the data
 
         # Fall back to global location
         global_paths = get_project_paths(None)
-        flow_path = search_in_dir(global_paths["flows_dir"])
-        if not flow_path:
-            return None
+        result = search_in_dir(global_paths["flows_dir"])
+        if result:
+            return result[1]  # Return the data
 
-        try:
-            with open(flow_path) as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Error loading workflow {workflow_id}: {e}")
-            return None
+        return None
 
     # ==================== Pipeline Execution ====================
 

@@ -46,8 +46,10 @@ async def list_flows(
         try:
             with open(file) as f:
                 data = json.load(f)
+                # Use name from JSON content if available, otherwise use filename
+                flow_name = data.get("name") or file.stem
                 flows.append({
-                    "name": file.stem,
+                    "name": flow_name,
                     "description": data.get("description", ""),
                     "templateId": data.get("templateId"),
                     "nodeCount": len(data.get("nodes", [])),
@@ -66,8 +68,10 @@ async def list_flows(
             try:
                 with open(file) as f:
                     data = json.load(f)
+                    # Use name from JSON content if available, otherwise use filename
+                    flow_name = data.get("name") or file.stem
                     flows.append({
-                        "name": file.stem,
+                        "name": flow_name,
                         "description": data.get("description", ""),
                         "templateId": data.get("templateId"),
                         "nodeCount": len(data.get("nodes", [])),
