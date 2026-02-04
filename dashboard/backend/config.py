@@ -16,7 +16,7 @@ class ProjectPaths(TypedDict):
 # Global paths (fallback)
 GLOBAL_CITI_AGENT_DIR = Path.home() / ".citi-agent"
 REGISTRY_PATH = GLOBAL_CITI_AGENT_DIR / "registry.json"
-FLOWS_DIR = GLOBAL_CITI_AGENT_DIR / "flows"
+FLOWS_DIR = GLOBAL_CITI_AGENT_DIR / "workflows"
 PROMPTS_DIR = GLOBAL_CITI_AGENT_DIR / "prompts"
 
 

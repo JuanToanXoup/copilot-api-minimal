@@ -14,7 +14,7 @@ object ServerConfig {
     const val GENERATION_START_TIMEOUT_MS = 60_000L
     const val GENERATION_COMPLETE_TIMEOUT_MS = 60_000L
     const val POLL_INTERVAL_MS = 250L
-    const val POST_GENERATION_DELAY_MS = 200L
+    const val POST_GENERATION_DELAY_MS = 1000L
 
     // UI polling (for port display)
     const val UI_POLL_INTERVAL_MS = 500

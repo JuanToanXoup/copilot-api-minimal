@@ -476,6 +476,8 @@ class PipelineExecutor:
             raise ValueError(f"Agent {agent_id} not connected")
 
         # Start a fresh agent session for this prompt (no conversation history)
+        # Add delay to allow UI to fully render previous response before clearing
+        await asyncio.sleep(1.5)
         await self._start_new_agent_session(conn)
 
         # Get the declared inputs for this node (what specific data it needs)
