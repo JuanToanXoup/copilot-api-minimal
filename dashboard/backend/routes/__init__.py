@@ -5,6 +5,7 @@ from .flows import router as flows_router
 from .http import router as http_router
 from .plantuml import router as plantuml_router
 from .project import router as project_router
+from .yaml_workflow import router as yaml_workflow_router
 from .prompts import router as prompts_router
 from .websocket import router as websocket_router
 
@@ -16,4 +17,5 @@ __all__ = [
     "project_router",
     "prompts_router",
     "websocket_router",
+    "yaml_workflow_router",
 ]

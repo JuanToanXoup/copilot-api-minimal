@@ -21,7 +21,7 @@ from services import (
     HeartbeatService,
     SpawnerService,
 )
-from routes import agents_router, flows_router, http_router, plantuml_router, project_router, prompts_router, websocket_router
+from routes import agents_router, flows_router, http_router, plantuml_router, project_router, prompts_router, websocket_router, yaml_workflow_router
 from routes import agents as agents_route
 from routes import websocket as websocket_route
 
@@ -72,6 +72,7 @@ app.include_router(plantuml_router)
 app.include_router(project_router)
 app.include_router(prompts_router)
 app.include_router(websocket_router)
+app.include_router(yaml_workflow_router)
 
 
 if __name__ == "__main__":
