@@ -1,113 +1,81 @@
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Combine, Loader2, CheckCircle2 } from 'lucide-react';
+import { Layers, Loader2, CheckCircle2 } from 'lucide-react';
 import clsx from 'clsx';
 
 interface AggregatorNodeProps {
   data: {
     label: string;
+    description?: string;
     status: 'idle' | 'waiting' | 'aggregating' | 'complete';
-    inputs?: Array<{ source: string; received: boolean; content?: string }>;
-    result?: string;
+    mode?: 'all' | 'first' | 'merge';
   };
+  selected?: boolean;
 }
 
-function AggregatorNode({ data }: AggregatorNodeProps) {
-  const { status, inputs = [], result } = data;
-  const receivedCount = inputs.filter(i => i.received).length;
+function AggregatorNode({ data, selected }: AggregatorNodeProps) {
+  const { label, description, status, mode = 'all' } = data;
 
   return (
     <div className={clsx(
-      'bg-white rounded-lg shadow-md border-2 w-[240px] overflow-hidden',
-      status === 'waiting' && 'border-amber-400',
-      status === 'aggregating' && 'border-blue-400',
+      'bg-white rounded-lg shadow-md border-2 w-[200px] transition-all',
+      (status === 'waiting' || status === 'aggregating') && 'border-teal-400',
       status === 'complete' && 'border-green-400',
-      status === 'idle' && 'border-slate-300'
+      status === 'idle' && 'border-teal-200',
+      selected && 'ring-2 ring-teal-500 ring-offset-2'
     )}>
       {/* Header */}
       <div className={clsx(
-        'px-3 py-2 border-b flex items-center justify-between',
-        status === 'aggregating' && 'bg-blue-50',
+        'px-3 py-2 flex items-center gap-2',
+        (status === 'waiting' || status === 'aggregating') && 'bg-teal-50',
         status === 'complete' && 'bg-green-50',
-        status === 'idle' && 'bg-slate-50'
+        status === 'idle' && 'bg-teal-50'
       )}>
-        <div className="flex items-center gap-2">
-          <Combine className={clsx(
-            'w-4 h-4',
-            status === 'aggregating' && 'text-blue-600',
-            status === 'complete' && 'text-green-600',
-            status === 'idle' && 'text-slate-500'
-          )} />
-          <span className="font-semibold text-slate-700 text-sm">Aggregator</span>
-        </div>
+        <Layers className="w-4 h-4 text-teal-600 flex-shrink-0" />
+        <span className="font-medium text-sm text-slate-700 truncate flex-1">
+          {label || 'Aggregator'}
+        </span>
         {(status === 'waiting' || status === 'aggregating') && (
-          <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+          <Loader2 className="w-3.5 h-3.5 text-teal-500 animate-spin" />
         )}
-        {status === 'complete' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+        {status === 'complete' && <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />}
       </div>
 
-      {/* Input status */}
-      {inputs.length > 0 && (
-        <div className="px-3 py-2 border-b">
-          <div className="text-xs text-slate-500 mb-1">
-            Inputs ({receivedCount}/{inputs.length})
-          </div>
-          <div className="flex gap-1">
-            {inputs.map((input, i) => (
-              <div
-                key={i}
-                className={clsx(
-                  'w-6 h-6 rounded flex items-center justify-center text-xs font-medium',
-                  input.received
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-slate-100 text-slate-400'
-                )}
-              >
-                {i + 1}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Info */}
+      <div className="px-3 py-2 border-t border-slate-100">
+        {description ? (
+          <p className="text-xs text-slate-500 truncate">{description}</p>
+        ) : (
+          <p className="text-xs text-slate-400">Mode: {mode}</p>
+        )}
+      </div>
 
-      {/* Result preview */}
-      {result && (
-        <div className="px-3 py-2">
-          <div className="text-xs text-slate-500 mb-1">Aggregated Result</div>
-          <div className="text-xs bg-green-50 text-slate-700 p-2 rounded border border-green-200 line-clamp-3">
-            {result}
-          </div>
-        </div>
-      )}
-
-      {/* Input handles */}
+      {/* Multiple input handles */}
       <Handle
         type="target"
         position={Position.Left}
         id="input-0"
         style={{ top: '30%' }}
-        className="w-3 h-3 bg-blue-500 border-2 border-white"
+        className="w-3 h-3 bg-teal-500 border-2 border-white"
       />
       <Handle
         type="target"
         position={Position.Left}
         id="input-1"
         style={{ top: '50%' }}
-        className="w-3 h-3 bg-purple-500 border-2 border-white"
+        className="w-3 h-3 bg-teal-500 border-2 border-white"
       />
       <Handle
         type="target"
         position={Position.Left}
         id="input-2"
         style={{ top: '70%' }}
-        className="w-3 h-3 bg-orange-500 border-2 border-white"
+        className="w-3 h-3 bg-teal-500 border-2 border-white"
       />
-
-      {/* Output handle */}
       <Handle
         type="source"
         position={Position.Right}
-        className="w-3 h-3 bg-green-500 border-2 border-white"
+        className="w-3 h-3 bg-teal-500 border-2 border-white"
       />
     </div>
   );

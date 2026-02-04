@@ -30,6 +30,7 @@ import PromptBlockNode from './components/PromptBlockNode';
 import WorkflowStartNode from './components/WorkflowStartNode';
 import TemplateSelector from './components/TemplateSelector';
 import FlowManager from './components/FlowManager';
+import NodePalette from './components/NodePalette';
 import Sidebar from './components/Sidebar';
 import ToastContainer from './components/Toast';
 import RoleEditor from './components/RoleEditor';
@@ -38,8 +39,7 @@ import ViewModeToggle from './components/ViewModeToggle';
 import MonitoringLayout from './components/MonitoringLayout';
 import PromptsTab from './components/PromptsTab';
 import { useStore } from './store';
-import { workflowTemplates, type WorkflowTemplate } from './workflowTemplates';
-import type { PromptWorkflowTemplate } from './promptWorkflowTemplates';
+import { promptWorkflowTemplates, type PromptWorkflowTemplate } from './promptWorkflowTemplates';
 import { validateOutput, generateRetryPrompt } from './utils/outputValidator';
 import { getHierarchicalLayout } from './utils/canvasLayout';
 import { formatErrorForToast } from './utils/errorMessages';
@@ -63,7 +63,7 @@ const nodeTypes: NodeTypes = {
 };
 
 // Get initial template
-const defaultTemplate = workflowTemplates[0];
+const defaultTemplate = promptWorkflowTemplates[0];
 const initialNodes: Node[] = defaultTemplate.nodes;
 const defaultEdges: Edge[] = defaultTemplate.edges;
 
@@ -300,28 +300,42 @@ function AppContent() {
     (event: React.DragEvent) => {
       event.preventDefault();
 
-      const agentData = event.dataTransfer.getData('application/agent');
-      if (!agentData) return;
-
-      const agent: Agent = JSON.parse(agentData);
       const position = {
         x: event.clientX - 300,
         y: event.clientY - 100,
       };
 
-      const newNode: Node = {
-        id: `agent-${nodeIdCounter.current++}`,
-        type: 'agent',
-        position,
-        data: {
-          label: agent.role || 'Agent',
-          agent,
-          status: 'idle',
-          response: '',
-        },
-      };
+      // Handle agent drops from sidebar
+      const agentData = event.dataTransfer.getData('application/agent');
+      if (agentData) {
+        const agent: Agent = JSON.parse(agentData);
+        const newNode: Node = {
+          id: `agent-${nodeIdCounter.current++}`,
+          type: 'agent',
+          position,
+          data: {
+            label: agent.role || 'Agent',
+            agent,
+            status: 'idle',
+            response: '',
+          },
+        };
+        setNodes((nds) => [...nds, newNode]);
+        return;
+      }
 
-      setNodes((nds) => [...nds, newNode]);
+      // Handle node palette drops
+      const nodeData = event.dataTransfer.getData('application/reactflow-node');
+      if (nodeData) {
+        const { type, data } = JSON.parse(nodeData);
+        const newNode: Node = {
+          id: `${type}-${nodeIdCounter.current++}`,
+          type,
+          position,
+          data,
+        };
+        setNodes((nds) => [...nds, newNode]);
+      }
     },
     [setNodes]
   );
@@ -336,11 +350,24 @@ function AppContent() {
     event.dataTransfer.effectAllowed = 'move';
   }, []);
 
+  // Handle adding node from palette click
+  const handleAddNode = useCallback(
+    (type: string, data: Record<string, unknown>) => {
+      // Add node to center-right of canvas
+      const newNode: Node = {
+        id: `${type}-${nodeIdCounter.current++}`,
+        type,
+        position: { x: 400, y: 200 },
+        data,
+      };
+      setNodes((nds) => [...nds, newNode]);
+    },
+    [setNodes]
+  );
+
   // Handle node click to open block editor
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-    if (node.type === 'agent') {
-      setSelectedNodeId(node.id);
-    }
+    setSelectedNodeId(node.id);
   }, []);
 
   // Handle updating node data from BlockEditor
@@ -1344,7 +1371,7 @@ function AppContent() {
   }, []); // Only run once on mount
 
   // Handle template selection (supports both WorkflowTemplate and PromptWorkflowTemplate)
-  const handleSelectTemplate = useCallback((template: WorkflowTemplate | PromptWorkflowTemplate) => {
+  const handleSelectTemplate = useCallback((template: PromptWorkflowTemplate) => {
     setSelectedTemplate(template.id);
     setWorkflowStatus('idle');
 
@@ -1545,25 +1572,34 @@ function AppContent() {
               {/* Canvas area */}
               <div className="flex-1 relative">
                 {/* Top toolbar */}
-                <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
+                <div className="absolute top-4 left-4 right-4 z-10 flex flex-col gap-2">
                   {/* Flow Manager and Auto-arrange */}
-                  <div className="flex items-center gap-2">
-                    <div className="bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200">
-                      <FlowManager
-                        nodes={nodes}
-                        edges={edges}
-                        selectedTemplate={selectedTemplate}
-                        onLoadFlow={handleLoadFlow}
-                      />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200">
+                        <FlowManager
+                          nodes={nodes}
+                          edges={edges}
+                          selectedTemplate={selectedTemplate}
+                          onLoadFlow={handleLoadFlow}
+                        />
+                      </div>
+                      <button
+                        onClick={handleAutoArrange}
+                        className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors text-sm text-slate-600"
+                        title="Auto-arrange nodes"
+                      >
+                        <LayoutGrid className="w-4 h-4" />
+                        <span>Auto Layout</span>
+                      </button>
                     </div>
-                    <button
-                      onClick={handleAutoArrange}
-                      className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors text-sm text-slate-600"
-                      title="Auto-arrange nodes"
-                    >
-                      <LayoutGrid className="w-4 h-4" />
-                      <span>Auto Layout</span>
-                    </button>
+                  </div>
+                  {/* Node Palette - drag or click to add nodes */}
+                  <div className="bg-white px-3 py-2 rounded-lg shadow-sm border border-slate-200">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Add Node:</span>
+                      <NodePalette onAddNode={handleAddNode} />
+                    </div>
                   </div>
                 </div>
 

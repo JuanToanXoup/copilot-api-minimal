@@ -8,8 +8,8 @@ interface LayoutOptions {
 }
 
 const defaultOptions: LayoutOptions = {
-  horizontalSpacing: 480,
-  verticalSpacing: 150,
+  horizontalSpacing: 280,
+  verticalSpacing: 100,
   startX: 50,
   startY: 50,
 };
@@ -99,33 +99,48 @@ function groupByLevel(nodes: Node[], levels: Map<string, number>): Map<number, N
 }
 
 /**
- * Get estimated height of a node based on its type
+ * Get actual dimensions of a node based on its type
+ * These match the w-[] and estimated heights in the component files
  */
-function getNodeHeight(node: Node): number {
+function getNodeDimensions(node: Node): { width: number; height: number } {
   switch (node.type) {
     case 'workflowStart':
-      return 280;
+      return { width: 280, height: 180 };
     case 'promptBlock':
-      return 500;
-    case 'prompt':
-    case 'supervisor':
-      return 200;
+    case 'httpRequest':
     case 'output':
-      return 350;
-    case 'agent':
-      return 180;
+      return { width: 200, height: 80 };
+    case 'condition':
+    case 'evaluator':
+      return { width: 200, height: 100 }; // Slightly taller due to branch indicators
     case 'router':
     case 'aggregator':
-    case 'evaluator':
-      return 150;
+      return { width: 200, height: 80 };
+    // Legacy nodes
+    case 'prompt':
+      return { width: 320, height: 150 };
+    case 'supervisor':
+      return { width: 380, height: 200 };
+    case 'agent':
+      return { width: 280, height: 150 };
     default:
-      return 150;
+      return { width: 200, height: 80 };
   }
+}
+
+// Backwards compatibility wrapper
+function getNodeHeight(node: Node): number {
+  return getNodeDimensions(node).height;
+}
+
+function getNodeWidth(node: Node): number {
+  return getNodeDimensions(node).width;
 }
 
 /**
  * Calculate hierarchical layout positions for nodes (left-to-right tree)
  * Returns new nodes with updated positions
+ * Uses actual node dimensions for proper spacing
  */
 export function getHierarchicalLayout(
   nodes: Node[],
@@ -141,12 +156,29 @@ export function getHierarchicalLayout(
   // Sort levels
   const sortedLevels = Array.from(groups.keys()).sort((a, b) => a - b);
 
+  // Calculate max width per level for proper horizontal spacing
+  const levelWidths = new Map<number, number>();
+  for (const level of sortedLevels) {
+    const nodesAtLevel = groups.get(level) || [];
+    const maxWidth = Math.max(...nodesAtLevel.map(n => getNodeWidth(n)));
+    levelWidths.set(level, maxWidth);
+  }
+
+  // Calculate x positions based on cumulative widths
+  const levelXPositions = new Map<number, number>();
+  let currentX = opts.startX;
+  for (const level of sortedLevels) {
+    levelXPositions.set(level, currentX);
+    const levelWidth = levelWidths.get(level) || 200;
+    currentX += levelWidth + 80; // 80px gap between columns
+  }
+
   // Calculate positions
   const newNodes: Node[] = [];
 
   for (const level of sortedLevels) {
     const nodesAtLevel = groups.get(level) || [];
-    const x = opts.startX + level * opts.horizontalSpacing;
+    const x = levelXPositions.get(level) || opts.startX;
 
     // Sort nodes at each level by type priority for consistent ordering
     const typePriority: Record<string, number> = {
@@ -175,7 +207,7 @@ export function getHierarchicalLayout(
     totalHeight -= opts.verticalSpacing; // Remove extra spacing after last node
 
     // Center the column vertically
-    let currentY = opts.startY - totalHeight / 2 + 200; // Offset to keep mostly visible
+    let currentY = opts.startY - totalHeight / 2 + 150; // Offset to keep mostly visible
 
     for (const node of nodesAtLevel) {
       newNodes.push({

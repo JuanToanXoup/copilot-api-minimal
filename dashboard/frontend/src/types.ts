@@ -190,6 +190,7 @@ export interface VariableBinding {
 // Simplified PromptBlock node data - stores REFERENCES, not full objects
 export interface PromptBlockNodeData {
   label: string;
+  description?: string;
   // Reference to agent by instance_id (source of truth is agents array in store)
   agentId: string | null;
   // Reference to prompt template by id (source of truth is promptTemplates in store)
