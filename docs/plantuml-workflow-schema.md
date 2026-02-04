@@ -89,9 +89,7 @@ note right
   template: code-analysis
   agent: Analyzer
   input: {{code}}
-  outputSchema: {
-    "analysis": "string"
-  }
+  <<outputSchema>>
 end note
 ```
 
@@ -102,7 +100,7 @@ end note
 | `template` | Yes | Prompt template ID or inline template string |
 | `agent` | No | Agent role/ID (overrides swimlane if specified) |
 | `input` | Yes | Input variable(s) using `{{variable}}` or `$VARIABLE` syntax |
-| `outputSchema` | Yes | JSON object defining expected output structure; keys become downstream variables |
+| `<<outputSchema>>` | Yes | Placeholder; resolved based on what downstream nodes need as input |
 | `retries` | No | Number of retry attempts on failure (default: 2) |
 | `timeout` | No | Timeout in seconds (default: 120) |
 
@@ -116,7 +114,7 @@ The parser converts annotations to `PromptBlockNodeData`:
 | Swimlane or `agent:` | `agentId` (resolved) |
 | `template:` | `promptTemplateId` (resolved) |
 | `input:` variables | `variableBindings[]` |
-| `outputSchema:` keys | Available as downstream variables (e.g., `{{analysis}}`) |
+| `<<outputSchema>>` | Resolved from downstream node input requirements |
 
 ### Inline Templates
 
@@ -130,11 +128,9 @@ note right
     Review this code for obvious issues:
     {{code}}
 
-    Respond as JSON with result field.
+    Respond as JSON.
   input: {{code}}
-  outputSchema: {
-    "result": "string"
-  }
+  <<outputSchema>>
 end note
 ```
 
@@ -148,9 +144,10 @@ interface PromptTemplate {
   name: string;                  // Display name
   description?: string;          // What the prompt does
   template: string;              // The prompt with {{variables}}
-  outputSchema: object;          // JSON defining expected output; keys become downstream variables
 }
 ```
+
+The `<<outputSchema>>` is resolved at workflow construction time based on what the next node needs as input.
 
 ## Control Flow
 
