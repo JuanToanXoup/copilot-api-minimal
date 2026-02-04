@@ -80,13 +80,17 @@ Each activity (`:Activity Name;`) can have an associated note with structured me
 
 ### Prompt Block Annotation
 
+The activity name (`:Activity Name;`) becomes the node's `label`.
+
 ```plantuml
 :Analyze Code;
 note right
   <<prompt>>
   template: code-analysis
+  agent: Analyzer
   input: {{code}}
   output: analysis
+  expectedOutput: JSON with issues array and suggestions array
   outputMode: json
   outputSchema: {"issues": [], "suggestions": []}
 end note
@@ -96,17 +100,32 @@ end note
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `template` | Yes | Prompt template ID or inline template |
+| `template` | Yes | Prompt template ID or inline template string |
+| `agent` | No | Agent role/ID (overrides swimlane if specified) |
 | `input` | Yes | Input variable(s) using `{{variable}}` or `$VARIABLE` syntax |
 | `output` | Yes | Output variable name for downstream reference |
-| `outputMode` | No | Output extraction mode: `full`, `json`, `jsonpath`, `regex`, `first_line` |
+| `expectedOutput` | No | Description of expected output format/content |
+| `outputMode` | No | Extraction mode: `full`, `json`, `jsonpath`, `regex`, `first_line` (default: `full`) |
+| `outputPattern` | No | Pattern for `jsonpath` or `regex` extraction modes |
 | `outputSchema` | No | Expected JSON schema for validation |
 | `retries` | No | Number of retry attempts on failure (default: 2) |
 | `timeout` | No | Timeout in seconds (default: 120) |
 
+### Node Data Mapping
+
+The parser converts annotations to `PromptBlockNodeData`:
+
+| PlantUML | PromptBlockNodeData |
+|----------|---------------------|
+| `:Activity Name;` | `label` |
+| Swimlane or `agent:` | `agentId` (resolved) |
+| `template:` | `promptTemplateId` (resolved) |
+| `input:` variables | `variableBindings[]` |
+| `output:` | Used for edge labels and downstream references |
+
 ### Inline Templates
 
-For simple prompts, you can define the template inline:
+For simple prompts, you can define the template inline using YAML multi-line syntax:
 
 ```plantuml
 :Quick Check;
@@ -119,7 +138,28 @@ note right
     Respond with: OK or list issues.
   input: {{code}}
   output: quickCheck
+  outputMode: first_line
 end note
+```
+
+### PromptTemplate Structure
+
+When referencing a template by ID, it must exist in the prompt registry with this structure:
+
+```typescript
+interface PromptTemplate {
+  id: string;                    // Unique identifier
+  name: string;                  // Display name
+  description?: string;          // What the prompt does
+  template: string;              // The prompt with {{variables}}
+  expectedOutput?: string;       // Description of expected output
+  outputExtraction: {
+    mode: 'full' | 'json' | 'jsonpath' | 'regex' | 'first_line';
+    pattern?: string;            // For jsonpath/regex
+    outputName: string;          // Variable name for output
+    schema?: object;             // JSON schema for validation
+  };
+}
 ```
 
 ## Control Flow
