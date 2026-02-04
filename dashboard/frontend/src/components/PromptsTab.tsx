@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, Component, type ReactNode } from 'react';
 import {
   FileText,
   Plus,
@@ -18,11 +18,68 @@ import {
   Pencil,
   Folder,
   MoreVertical,
+  AlertTriangle,
 } from 'lucide-react';
 import clsx from 'clsx';
 import yaml from 'js-yaml';
 import { useStore } from '../store';
 import type { PromptTemplate, ExtractionMode, PromptPriority } from '../types';
+
+// Error boundary to catch rendering errors in PromptEditor
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  onReset: () => void;
+}
+
+class PromptEditorErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('PromptEditor error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex-1 flex items-center justify-center text-slate-500">
+          <div className="text-center p-8 max-w-md">
+            <AlertTriangle className="w-12 h-12 mx-auto mb-4 text-amber-500" />
+            <h3 className="text-lg font-medium text-slate-700 mb-2">Failed to load prompt</h3>
+            <p className="text-sm text-slate-500 mb-4">
+              This prompt appears to have malformed data. It may have invalid YAML frontmatter.
+            </p>
+            <p className="text-xs text-slate-400 mb-4 font-mono bg-slate-100 p-2 rounded">
+              {this.state.error?.message}
+            </p>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                this.props.onReset();
+              }}
+              className="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 text-sm"
+            >
+              Go back
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 const API_BASE = 'http://localhost:8080';
 
@@ -123,12 +180,28 @@ export default function PromptsTab() {
       const response = await fetch(buildApiUrl('/api/prompts', activeProjectPath));
       if (response.ok) {
         const prompts = await response.json();
-        if (prompts.length > 0) {
-          setPromptTemplates(prompts);
+        if (Array.isArray(prompts) && prompts.length > 0) {
+          // Filter and validate prompts to ensure they have required fields
+          const validPrompts = prompts.filter((p: Record<string, unknown>) => {
+            // Must have at least an id and name
+            if (!p || typeof p !== 'object') return false;
+            if (!p.id || !p.name) return false;
+            // Ensure outputExtraction has defaults if missing
+            if (!p.outputExtraction || typeof p.outputExtraction !== 'object') {
+              p.outputExtraction = { mode: 'full', outputName: 'output' };
+            } else {
+              const extraction = p.outputExtraction as Record<string, unknown>;
+              if (!extraction.mode) extraction.mode = 'full';
+              if (!extraction.outputName) extraction.outputName = 'output';
+            }
+            return true;
+          });
+          setPromptTemplates(validPrompts as PromptTemplate[]);
         }
       }
     } catch (error) {
       console.error('Failed to load prompts from backend:', error);
+      addToast({ type: 'error', title: 'Load failed', message: 'Failed to load prompts from backend' });
     } finally {
       setIsLoading(false);
     }
@@ -556,6 +629,27 @@ export default function PromptsTab() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Safe prompt selection with validation
+  const handleSelectPrompt = (prompt: PromptTemplate) => {
+    try {
+      // Ensure the prompt has required fields before selecting
+      if (!prompt || !prompt.id) {
+        addToast({ type: 'error', title: 'Invalid prompt', message: 'This prompt appears to be malformed' });
+        return;
+      }
+      // Ensure outputExtraction exists with defaults
+      const safePrompt = {
+        ...prompt,
+        outputExtraction: prompt.outputExtraction ?? { mode: 'full' as ExtractionMode, outputName: 'output' },
+      };
+      setSelectedPrompt(safePrompt);
+      setIsCreating(false);
+    } catch (error) {
+      console.error('Error selecting prompt:', error);
+      addToast({ type: 'error', title: 'Error', message: 'Failed to load prompt details' });
+    }
+  };
+
   // Recursive folder renderer
   const renderFolder = (folder: { name: string; promptCount: number; parent: string | null }, depth: number = 0) => {
     const childFolders = getChildFolders(folder.name);
@@ -735,10 +829,7 @@ export default function PromptsTab() {
                 draggable
                 onDragStart={(e) => handleDragStart(e, prompt.id, folder.name)}
                 onDragEnd={handleDragEnd}
-                onClick={() => {
-                  setSelectedPrompt(prompt);
-                  setIsCreating(false);
-                }}
+                onClick={() => handleSelectPrompt(prompt)}
                 className={clsx(
                   'w-full pr-4 py-2.5 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-grab active:cursor-grabbing',
                   selectedPrompt?.id === prompt.id && 'bg-indigo-50 border-l-2 border-l-indigo-500',
@@ -955,10 +1046,7 @@ export default function PromptsTab() {
                   draggable
                   onDragStart={(e) => handleDragStart(e, prompt.id, null)}
                   onDragEnd={handleDragEnd}
-                  onClick={() => {
-                    setSelectedPrompt(prompt);
-                    setIsCreating(false);
-                  }}
+                  onClick={() => handleSelectPrompt(prompt)}
                   className={clsx(
                     'w-full pl-12 pr-4 py-2.5 text-left border-b border-slate-100 hover:bg-slate-50 transition-colors cursor-grab active:cursor-grabbing',
                     selectedPrompt?.id === prompt.id && 'bg-indigo-50 border-l-2 border-l-indigo-500',
@@ -1001,18 +1089,23 @@ export default function PromptsTab() {
             initialFolder={selectedFolder}
           />
         ) : selectedPrompt ? (
-          <PromptEditor
-            key={selectedPrompt.id}
-            template={selectedPrompt as PromptTemplate & { folder?: string | null }}
-            onSave={handleUpdate}
-            onDelete={() => handleDelete(selectedPrompt.id)}
-            onDuplicate={() => handleDuplicate(selectedPrompt)}
-            onExport={() => handleExport(selectedPrompt)}
-            onCopy={(text) => copyToClipboard(text, selectedPrompt.id)}
-            copied={copiedId === selectedPrompt.id}
-            categories={categories}
-            folders={folders}
-          />
+          <PromptEditorErrorBoundary
+            key={`error-boundary-${selectedPrompt.id}`}
+            onReset={() => setSelectedPrompt(null)}
+          >
+            <PromptEditor
+              key={selectedPrompt.id}
+              template={selectedPrompt as PromptTemplate & { folder?: string | null }}
+              onSave={handleUpdate}
+              onDelete={() => handleDelete(selectedPrompt.id)}
+              onDuplicate={() => handleDuplicate(selectedPrompt)}
+              onExport={() => handleExport(selectedPrompt)}
+              onCopy={(text) => copyToClipboard(text, selectedPrompt.id)}
+              copied={copiedId === selectedPrompt.id}
+              categories={categories}
+              folders={folders}
+            />
+          </PromptEditorErrorBoundary>
         ) : (
           <div className="flex-1 flex items-center justify-center text-slate-400">
             <div className="text-center">
@@ -1060,6 +1153,9 @@ function PromptEditor({
   folders = [],
   initialFolder,
 }: PromptEditorProps) {
+  // Safely extract outputExtraction with defaults to prevent crashes on malformed data
+  const safeOutputExtraction = template?.outputExtraction ?? { mode: 'full' as ExtractionMode, outputName: 'output' };
+
   const [name, setName] = useState(template?.name || '');
   const [description, setDescription] = useState(template?.description || '');
   const [category, setCategory] = useState(template?.category || '');
@@ -1069,9 +1165,9 @@ function PromptEditor({
   const [priority, setPriority] = useState<PromptPriority | ''>(template?.priority || '');
   const [version, setVersion] = useState(template?.version || '');
   const [promptTemplate, setPromptTemplate] = useState(template?.template || '');
-  const [extractionMode, setExtractionMode] = useState<ExtractionMode>(template?.outputExtraction.mode || 'full');
-  const [extractionPattern, setExtractionPattern] = useState(template?.outputExtraction.pattern || '');
-  const [outputName, setOutputName] = useState(template?.outputExtraction.outputName || 'output');
+  const [extractionMode, setExtractionMode] = useState<ExtractionMode>(safeOutputExtraction.mode || 'full');
+  const [extractionPattern, setExtractionPattern] = useState(safeOutputExtraction.pattern || '');
+  const [outputName, setOutputName] = useState(safeOutputExtraction.outputName || 'output');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
 
   // Line numbers editor refs and scroll state

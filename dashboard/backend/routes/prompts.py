@@ -62,6 +62,17 @@ def _parse_markdown_prompt(content: str) -> dict[str, Any] | None:
         if not frontmatter or not isinstance(frontmatter, dict):
             return None
 
+        # Ensure outputExtraction always has required fields with defaults
+        raw_extraction = frontmatter.get('outputExtraction') or {}
+        if not isinstance(raw_extraction, dict):
+            raw_extraction = {}
+        output_extraction = {
+            'mode': raw_extraction.get('mode', 'full'),
+            'outputName': raw_extraction.get('outputName', 'output'),
+        }
+        if raw_extraction.get('pattern'):
+            output_extraction['pattern'] = raw_extraction['pattern']
+
         return {
             'id': frontmatter.get('id', ''),
             'name': frontmatter.get('name', ''),
@@ -71,14 +82,17 @@ def _parse_markdown_prompt(content: str) -> dict[str, Any] | None:
             'priority': frontmatter.get('priority'),
             'version': frontmatter.get('version'),
             'template': template,
-            'outputExtraction': frontmatter.get('outputExtraction', {
-                'mode': 'full',
-                'outputName': 'output'
-            }),
+            'outputExtraction': output_extraction,
             'createdAt': frontmatter.get('createdAt'),
             'updatedAt': frontmatter.get('updatedAt'),
         }
-    except yaml.YAMLError:
+    except yaml.YAMLError as e:
+        # Log the error for debugging but return None to skip malformed files
+        print(f"YAML parse error in prompt file: {e}")
+        return None
+    except Exception as e:
+        # Catch any other unexpected errors during parsing
+        print(f"Unexpected error parsing prompt file: {e}")
         return None
 
 

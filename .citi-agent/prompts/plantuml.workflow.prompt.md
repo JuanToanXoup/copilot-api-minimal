@@ -2,8 +2,8 @@
 id: prompt-1-1770200439063
 name: plantuml.workflow.prompt
 outputExtraction:
-mode: full
-outputName: output
+  mode: full
+  outputName: output
 createdAt: '2026-02-04T04:20:39.074097'
 updatedAt: '2026-02-04T04:20:39.074097'
 ---

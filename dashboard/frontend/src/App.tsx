@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -83,7 +83,11 @@ function AppContent() {
   } = useStore();
 
   // Initialize mock data on mount (for demo purposes)
+  // Use a ref to prevent double-initialization in React Strict Mode
+  const mockDataInitialized = useRef(false);
   useEffect(() => {
+    if (mockDataInitialized.current) return;
+    mockDataInitialized.current = true;
     initializeMockData({
       setInstances,
       setTasks,
@@ -252,9 +256,9 @@ function AppContent() {
               onLoadFlow={handleLoadFlow}
             />
 
-            <div className="flex-1 flex relative gap-4">
+            <div className="flex-1 flex relative gap-4 min-h-0">
               {/* Canvas area */}
-              <div className="flex-1 relative">
+              <div className="flex-1 relative min-h-0" style={{ height: '100%' }}>
                 {/* Top toolbar */}
                 <div className="absolute top-4 left-4 right-4 z-10">
                   <div className="flex items-center justify-between">
