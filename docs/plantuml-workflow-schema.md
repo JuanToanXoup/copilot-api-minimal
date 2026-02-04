@@ -91,9 +91,7 @@ note right
   input: {{code}}
   output: analysis
   outputSchema: {
-    "issues": ["string"],
-    "suggestions": ["string"],
-    "severity": "low | medium | high"
+    "analysis": "string"
   }
 end note
 ```
@@ -136,12 +134,11 @@ note right
     Review this code for obvious issues:
     {{code}}
 
-    Respond as JSON.
+    Respond as JSON with result field.
   input: {{code}}
   output: quickCheck
   outputSchema: {
-    "status": "ok | issues_found",
-    "issues": ["string"]
+    "result": "string"
   }
 end note
 ```
