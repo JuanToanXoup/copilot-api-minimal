@@ -44,6 +44,15 @@ object CopilotClassNames {
     const val SEND_MESSAGE_ACTION = "com.github.copilot.chat.input.SendMessageAction"
     const val NEW_AGENT_SESSION_ACTION = "com.github.copilot.agent.window.actions.NewAgentSessionAction"
 
+    // Alternative action class names for New Chat/Session button
+    val NEW_SESSION_ACTION_VARIANTS = listOf(
+        "com.github.copilot.agent.window.actions.NewAgentSessionAction",
+        "com.github.copilot.chat.session.actions.NewChatAction",
+        "com.github.copilot.chat.actions.NewChatAction",
+        "com.github.copilot.agent.session.actions.NewSessionAction",
+        "com.github.copilot.chat.window.actions.NewChatAction"
+    )
+
     // All message component class names for extraction
     // Note: HTML_CONTENT_COMPONENT excluded as it contains the welcome message, not actual responses
     val MESSAGE_COMPONENTS = listOf(

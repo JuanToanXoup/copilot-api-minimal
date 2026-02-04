@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 
+import yaml
+
 from config import get_project_paths
 from models import (
     Failure,
@@ -38,8 +40,67 @@ class PipelineExecutor:
         self.failures: dict[str, Failure] = {}
         self.pipelines: dict[str, PipelineState] = {}
         self.active_workflow_id: Optional[str] = None
+        self.active_project_path: Optional[str] = None  # Project path for loading prompts
         self._execution_queue: asyncio.Queue = asyncio.Queue()
         self._running = False
+
+    # ==================== Pipeline Run Directory ====================
+
+    def _get_run_directory(self, failure_id: str, project_path: str | None = None) -> Path:
+        """Get the directory for storing pipeline run state files."""
+        paths = get_project_paths(project_path)
+        base_dir = paths["flows_dir"].parent  # .citi-agent directory
+        run_dir = base_dir / "pipeline-runs" / failure_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        return run_dir
+
+    def _save_to_run(
+        self,
+        failure_id: str,
+        filename: str,
+        data: Any,
+        project_path: str | None = None,
+    ) -> Path:
+        """Save data to a file in the pipeline run directory."""
+        run_dir = self._get_run_directory(failure_id, project_path)
+        file_path = run_dir / filename
+
+        # Ensure data is JSON serializable
+        if isinstance(data, str):
+            content = data
+        else:
+            content = json.dumps(data, indent=2, default=str)
+
+        file_path.write_text(content)
+        return file_path
+
+    def _list_run_files(self, failure_id: str, project_path: str | None = None) -> list[str]:
+        """List all files in the pipeline run directory."""
+        run_dir = self._get_run_directory(failure_id, project_path)
+        return sorted([f.name for f in run_dir.glob("*.json")])
+
+    def _get_run_context_prompt(self, failure_id: str, project_path: str | None = None) -> str:
+        """Generate a prompt section describing the available run state files."""
+        run_dir = self._get_run_directory(failure_id, project_path)
+        files = self._list_run_files(failure_id, project_path)
+
+        if not files:
+            return ""
+
+        lines = [
+            f"\n## Pipeline State Directory",
+            f"Previous outputs are saved at: {run_dir}",
+            f"",
+            f"Available files:",
+        ]
+        for f in files:
+            lines.append(f"  - {f}")
+
+        lines.append("")
+        lines.append("Read these files to understand context from previous steps.")
+        lines.append("")
+
+        return "\n".join(lines)
 
     # ==================== Failure Management ====================
 
@@ -89,29 +150,49 @@ class PipelineExecutor:
 
     # ==================== Workflow Management ====================
 
-    def set_active_workflow(self, workflow_id: str) -> None:
+    def set_active_workflow(self, workflow_id: str, project_path: str | None = None) -> None:
         """Set the active workflow for processing failures."""
         self.active_workflow_id = workflow_id
+        if project_path:
+            self.active_project_path = project_path
 
     def get_active_workflow(self) -> Optional[str]:
         """Get the current active workflow ID."""
         return self.active_workflow_id
 
     def load_workflow(self, workflow_id: str, project_path: str | None = None) -> Optional[dict]:
-        """Load a workflow definition from storage."""
-        paths = get_project_paths(project_path)
-        flows_dir = paths["flows_dir"]
+        """Load a workflow definition from storage.
 
-        # Try to find the workflow file
-        flow_path = flows_dir / f"{workflow_id}.json"
-        if not flow_path.exists():
+        Searches project-specific location first, then falls back to global.
+        """
+        def search_in_dir(flows_dir: Path) -> Optional[Path]:
+            """Search for workflow in a directory."""
+            if not flows_dir.exists():
+                return None
+            flow_path = flows_dir / f"{workflow_id}.json"
+            if flow_path.exists():
+                return flow_path
             # Search in subfolders
             for file in flows_dir.rglob("*.json"):
                 if file.stem == workflow_id:
-                    flow_path = file
-                    break
+                    return file
+            return None
 
-        if not flow_path.exists():
+        # Try project-specific location first
+        if project_path:
+            project_paths = get_project_paths(project_path)
+            flow_path = search_in_dir(project_paths["flows_dir"])
+            if flow_path:
+                try:
+                    with open(flow_path) as f:
+                        return json.load(f)
+                except Exception as e:
+                    print(f"Error loading workflow {workflow_id}: {e}")
+
+        # Fall back to global location
+        global_paths = get_project_paths(None)
+        flow_path = search_in_dir(global_paths["flows_dir"])
+        if not flow_path:
             return None
 
         try:
@@ -195,6 +276,33 @@ class PipelineExecutor:
         }
         self.pipelines[failure_id] = pipeline
 
+        # Determine project path for this run
+        project_path = self.active_project_path
+        if not project_path:
+            # Try to get from first connected agent
+            registry = self.agent_manager.read_registry()
+            for entry in registry.values():
+                if entry.get("projectPath"):
+                    project_path = entry["projectPath"]
+                    break
+
+        # Save initial failure data to run directory
+        initial_data = {
+            "test_file": failure["test_file"],
+            "test_name": failure["test_name"],
+            "error_message": failure["error_message"],
+            "stack_trace": failure.get("stack_trace", ""),
+            "expected": failure.get("expected", ""),
+            "actual": failure.get("actual", ""),
+            **failure.get("context", {}),
+        }
+        self._save_to_run(failure_id, "00-failure-input.json", initial_data, project_path)
+
+        # Store run directory path in pipeline state
+        run_dir = self._get_run_directory(failure_id, project_path)
+        pipeline["run_directory"] = str(run_dir)
+        pipeline["project_path"] = project_path
+
         # Build initial context with failure data
         context = {
             "input": json.dumps({
@@ -257,6 +365,36 @@ class PipelineExecutor:
                     context[node_id] = result
                     failure["node_results"][node_id] = result
 
+                    # Save output to file in run directory
+                    # Format: {step_number:02d}-{sanitized_label}.json
+                    node_label = task["node_label"]
+                    safe_label = re.sub(r'[^\w\s-]', '', node_label).strip().lower()
+                    safe_label = re.sub(r'[-\s]+', '-', safe_label)[:40]
+                    step_num = i + 1  # 1-indexed step number
+                    filename = f"{step_num:02d}-{safe_label}.json"
+
+                    # Get output name from template if available
+                    output_name = None
+                    prompt_template_id = node.get("data", {}).get("promptTemplateId")
+                    if prompt_template_id:
+                        template = self._load_prompt_template(prompt_template_id, project_path)
+                        if template:
+                            output_extraction = template.get("outputExtraction", {})
+                            output_name = output_extraction.get("outputName")
+                            if output_name:
+                                context[output_name] = result.get("response", result)
+
+                    # Save to file with metadata
+                    output_data = {
+                        "step": step_num,
+                        "node_id": node_id,
+                        "node_label": node_label,
+                        "output_name": output_name,
+                        "timestamp": datetime.now().isoformat(),
+                        "response": result.get("response", result),
+                    }
+                    self._save_to_run(failure_id, filename, output_data, project_path)
+
             except Exception as e:
                 task["status"] = "failed"
                 task["error"] = str(e)
@@ -290,17 +428,29 @@ class PipelineExecutor:
         agent_id = data.get("agentId")
         prompt_template_id = data.get("promptTemplateId")
 
-        # If no agent specified, try to get any available connected agent
+        # Get project path from pipeline state
+        failure_id = task["failure_id"]
+        pipeline = self.pipelines.get(failure_id, {})
+        project_path = pipeline.get("project_path") or self.active_project_path
+
+        # If no agent specified, get an agent that matches the project
         if not agent_id:
-            conn = self.agent_manager.get_connected_agent()
+            conn = None
+            # First, try to get an agent for the specific project
+            if project_path:
+                conn = self.agent_manager.get_agent_for_project(project_path)
+            # Fall back to any connected agent
+            if not conn:
+                conn = self.agent_manager.get_connected_agent()
+
             if conn:
                 agent_id = conn.instance_id
             else:
                 task["status"] = "failed"
-                task["error"] = "No agent available"
+                task["error"] = f"No agent available for project: {project_path}"
                 task["completed_at"] = datetime.now().isoformat()
                 await self._broadcast_task_update(task)
-                raise ValueError("No agent available for promptBlock")
+                raise ValueError(f"No agent available for project: {project_path}")
 
         # Get agent connection
         conn = self.agent_manager.get_connection(agent_id)
@@ -311,33 +461,52 @@ class PipelineExecutor:
             await self._broadcast_task_update(task)
             raise ValueError(f"Agent {agent_id} not connected")
 
+        # Start a fresh agent session for this prompt (no conversation history)
+        await self._start_new_agent_session(conn)
+
+        # Get the declared inputs for this node (what specific data it needs)
+        declared_inputs = data.get("inputs", [])  # e.g., ["error_message", "test_file"]
+
+        # Build scoped context with only the declared inputs
+        scoped_context = self._build_scoped_context(declared_inputs, context)
+
         # Build prompt from template or node data
         prompt = ""
-
-        # Try to get prompt from node's label/description as fallback
         node_label = data.get("label", "")
         node_description = data.get("description", "")
 
+        # Get the run directory context (lists available state files)
+        run_context = self._get_run_context_prompt(failure_id, project_path)
+
         if prompt_template_id:
-            # TODO: Load prompt template from prompts API and substitute variables
-            # For now, use the node label as the prompt instruction
-            prompt = f"Task: {node_label}\n\nContext:\n{context.get('input', '')}"
+            # Load the actual prompt template
+            template = self._load_prompt_template(prompt_template_id, project_path)
+            if template and template.get("template"):
+                # Use the loaded template with variable substitution
+                prompt = self._build_prompt_with_template(
+                    template["template"],
+                    context,
+                    template.get("outputExtraction"),
+                )
+            else:
+                # Fallback if template not found
+                prompt = self._build_prompt_from_template(
+                    node_label, node_description, scoped_context, declared_inputs
+                )
         elif data.get("prompt"):
             prompt = data.get("prompt", "")
+            # Substitute variables in the raw prompt
+            prompt = self._substitute_variables(prompt, context)
         else:
-            # Use node label as prompt instruction with failure context
-            prompt = f"""You are helping debug a test failure.
+            # Build a focused prompt with only relevant context
+            prompt = self._build_prompt_from_template(
+                node_label, node_description, scoped_context, declared_inputs
+            )
 
-Task: {node_label}
-{f'Description: {node_description}' if node_description else ''}
-
-Failure Context:
-{context.get('input', '')}
-
-Please analyze and provide your findings."""
-
-        # Substitute variables in prompt
-        prompt = self._substitute_variables(prompt, context)
+        # Append run directory context to the prompt
+        # This tells the agent where to find previous outputs
+        if run_context:
+            prompt = prompt + "\n" + run_context
 
         # Update task status
         task["status"] = "running"
@@ -455,6 +624,165 @@ Please analyze and provide your findings."""
         return output
 
     # ==================== Helper Methods ====================
+
+    async def _start_new_agent_session(self, conn) -> bool:
+        """Start a fresh agent chat session (clears conversation history).
+
+        Returns True if session was successfully reset, False otherwise.
+        """
+        try:
+            result = await conn.send_command("newAgentSession", timeout=5.0)
+
+            if result.get("status") == "success":
+                print(f"New agent session started for {conn.instance_id}")
+                return True
+            else:
+                error = result.get("error") or result.get("message", "Unknown error")
+                print(f"Warning: Failed to start new agent session: {error}")
+                return False
+
+        except Exception as e:
+            print(f"Warning: Exception starting new agent session: {e}")
+            return False
+
+    def _build_scoped_context(
+        self,
+        declared_inputs: list[str],
+        context: dict,
+    ) -> dict:
+        """Build a context dict with only the declared inputs."""
+        if not declared_inputs:
+            # If no inputs declared, include basic failure info
+            failure = context.get("failure", {})
+            return {
+                "error_message": failure.get("error_message", ""),
+                "test_file": failure.get("test_file", ""),
+                "test_name": failure.get("test_name", ""),
+            }
+
+        scoped = {}
+        failure = context.get("failure", {})
+
+        for input_name in declared_inputs:
+            # Check failure data first
+            if input_name in failure:
+                scoped[input_name] = failure[input_name]
+            # Check node outputs (from previous nodes)
+            elif input_name in context:
+                val = context[input_name]
+                if isinstance(val, dict) and "response" in val:
+                    scoped[input_name] = val["response"]
+                else:
+                    scoped[input_name] = val
+            # Check for dot notation (e.g., "node_id.output_name")
+            elif "." in input_name:
+                node_id, output_name = input_name.split(".", 1)
+                if node_id in context and isinstance(context[node_id], dict):
+                    scoped[input_name] = context[node_id].get(output_name, "")
+
+        return scoped
+
+    def _load_prompt_template(self, prompt_id: str, project_path: str | None = None) -> Optional[dict]:
+        """Load a prompt template by ID from the prompts directory.
+
+        Searches project-local prompts first, then falls back to global.
+        """
+        def parse_prompt_file(file_path: Path) -> Optional[dict]:
+            """Parse a markdown prompt file with YAML frontmatter."""
+            try:
+                content = file_path.read_text()
+                match = re.match(r'^---\s*\n(.*?)\n---\s*\n(.*)$', content, re.DOTALL)
+                if not match:
+                    return None
+                frontmatter = yaml.safe_load(match.group(1))
+                template = match.group(2).strip()
+                if frontmatter and isinstance(frontmatter, dict):
+                    return {
+                        'id': frontmatter.get('id', file_path.stem),
+                        'name': frontmatter.get('name', ''),
+                        'description': frontmatter.get('description', ''),
+                        'template': template,
+                        'outputExtraction': frontmatter.get('outputExtraction', {}),
+                    }
+            except Exception:
+                pass
+            return None
+
+        def search_in_dir(prompts_dir: Path) -> Optional[dict]:
+            """Search for prompt in a directory."""
+            if not prompts_dir.exists():
+                return None
+            for file in prompts_dir.rglob("*.md"):
+                prompt = parse_prompt_file(file)
+                if prompt and (prompt.get('id') == prompt_id or file.stem == prompt_id):
+                    return prompt
+            return None
+
+        # Try project-local first
+        if project_path:
+            local_paths = get_project_paths(project_path)
+            result = search_in_dir(local_paths["prompts_dir"])
+            if result:
+                return result
+
+        # Search all known projects from registry
+        registry = self.agent_manager.read_registry()
+        for agent_entry in registry.values():
+            agent_project = agent_entry.get("projectPath")
+            if agent_project and agent_project != project_path:
+                agent_paths = get_project_paths(agent_project)
+                result = search_in_dir(agent_paths["prompts_dir"])
+                if result:
+                    return result
+
+        # Fall back to global
+        global_paths = get_project_paths(None)
+        return search_in_dir(global_paths["prompts_dir"])
+
+    def _build_prompt_from_template(
+        self,
+        label: str,
+        description: str,
+        scoped_context: dict,
+        declared_inputs: list[str],
+    ) -> str:
+        """Build a fallback prompt when no template is available."""
+        parts = [f"## Task: {label}"]
+
+        if description:
+            parts.append(f"\n{description}")
+
+        if scoped_context:
+            parts.append("\n## Input Data:")
+            for key, value in scoped_context.items():
+                if isinstance(value, str) and len(value) > 500:
+                    value = value[:500] + "..."
+                parts.append(f"\n### {key}:\n{value}")
+
+        parts.append("\n## Instructions:")
+        parts.append("Analyze the input data and provide your findings.")
+        parts.append("Be concise and focused on the specific task.")
+
+        return "\n".join(parts)
+
+    def _build_prompt_with_template(
+        self,
+        template_content: str,
+        context: dict,
+        output_extraction: dict | None = None,
+    ) -> str:
+        """Build a prompt using a loaded template with variable substitution."""
+        # Substitute variables in the template
+        prompt = self._substitute_variables(template_content, context)
+
+        # Add output format reminder if specified
+        if output_extraction:
+            mode = output_extraction.get('mode', 'full')
+            output_name = output_extraction.get('outputName', 'output')
+            if mode == 'json':
+                prompt += f"\n\n---\nIMPORTANT: Return your response as valid JSON only. The output will be stored as '{output_name}'."
+
+        return prompt
 
     def _get_execution_order(self, nodes: list, edges: list) -> list[str]:
         """Get topological execution order of nodes."""

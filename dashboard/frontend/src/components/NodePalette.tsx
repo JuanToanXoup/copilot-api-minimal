@@ -47,6 +47,7 @@ const nodeTypeConfigs: NodeTypeConfig[] = [
       agentId: null,
       promptTemplateId: null,
       variableBindings: [],
+      inputs: [], // Declared inputs for scoped context
       status: 'idle',
     },
   },

@@ -129,6 +129,22 @@ function PromptBlockConfig({
   templates: Array<{ id: string; name: string }>;
   onChange: (field: string, value: unknown) => void;
 }) {
+  const inputs = (data.inputs as string[]) || [];
+
+  const addInput = () => {
+    onChange('inputs', [...inputs, '']);
+  };
+
+  const updateInput = (index: number, value: string) => {
+    const newInputs = [...inputs];
+    newInputs[index] = value;
+    onChange('inputs', newInputs);
+  };
+
+  const removeInput = (index: number) => {
+    onChange('inputs', inputs.filter((_, i) => i !== index));
+  };
+
   return (
     <div className="space-y-2">
       <div>
@@ -138,7 +154,7 @@ function PromptBlockConfig({
           onChange={(e) => onChange('agentId', e.target.value || null)}
           className={selectClass}
         >
-          <option value="">Select...</option>
+          <option value="">Auto-assign</option>
           {agents.filter(a => a.connected).map((agent) => (
             <option key={agent.instance_id} value={agent.instance_id}>
               :{agent.port} - {agent.project_name}
@@ -159,6 +175,57 @@ function PromptBlockConfig({
             <option key={t.id} value={t.id}>{t.name}</option>
           ))}
         </select>
+      </div>
+
+      <hr className="border-slate-100" />
+
+      <div>
+        <label className={labelClass}>Declared Inputs (scoped context)</label>
+        <p className="text-[10px] text-slate-400 mb-1">
+          Only these fields are passed to the prompt. Leave empty for default failure info.
+        </p>
+        {inputs.length === 0 ? (
+          <div className="text-[10px] text-slate-400 italic mb-1">
+            Default: error_message, test_file, test_name
+          </div>
+        ) : (
+          <div className="space-y-1 mb-1">
+            {inputs.map((input, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => updateInput(i, e.target.value)}
+                  placeholder="e.g., error_message or node_id.response"
+                  className={clsx(inputClass, 'flex-1 font-mono')}
+                />
+                <button
+                  onClick={() => removeInput(i)}
+                  className="p-1 text-slate-400 hover:text-red-500"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          onClick={addInput}
+          className="text-[10px] text-indigo-600 hover:text-indigo-700 font-medium"
+        >
+          + Add Input
+        </button>
+      </div>
+
+      <div className="bg-indigo-50 border border-indigo-200 rounded p-1.5">
+        <p className="text-[10px] text-indigo-600 font-medium mb-1">Available inputs:</p>
+        <ul className="text-[9px] text-indigo-500 font-mono space-y-0.5">
+          <li>error_message - The test error</li>
+          <li>test_file - Path to test file</li>
+          <li>test_name - Name of failing test</li>
+          <li>stack_trace - Error stack trace</li>
+          <li>node_id.response - Output from node</li>
+        </ul>
       </div>
     </div>
   );

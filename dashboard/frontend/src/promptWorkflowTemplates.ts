@@ -13,13 +13,15 @@ export interface PromptWorkflowTemplate {
 // Helper to create PromptBlock node data with new reference-based format
 function createPromptBlockData(
   label: string,
-  promptTemplateId: string | null = null
+  promptTemplateId: string | null = null,
+  inputs: string[] = []
 ): Record<string, unknown> {
   const data: PromptBlockNodeData = {
     label,
     agentId: null, // User selects agent
     promptTemplateId, // Reference to template in registry
     variableBindings: [],
+    inputs, // Declared inputs - scoped context for the prompt
     status: 'idle',
   };
   return data as unknown as Record<string, unknown>;
@@ -79,13 +81,15 @@ export const promptWorkflowTemplates: PromptWorkflowTemplate[] = [
         id: 'classifier',
         type: 'promptBlock',
         position: { x: 400, y: 200 },
-        data: createPromptBlockData('Classify Failure', 'classify-failure'),
+        // Only needs error_message and test_name to classify
+        data: createPromptBlockData('Classify Failure', 'classify-failure', ['error_message', 'test_name']),
       },
       {
         id: 'fix-generator',
         type: 'promptBlock',
         position: { x: 900, y: 200 },
-        data: createPromptBlockData('Generate Fix', 'generate-fix'),
+        // Needs the classification plus test_file and stack_trace
+        data: createPromptBlockData('Generate Fix', 'generate-fix', ['classifier.response', 'test_file', 'stack_trace']),
       },
       {
         id: 'output-1',

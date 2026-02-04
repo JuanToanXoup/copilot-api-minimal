@@ -37,6 +37,7 @@ class FailureCreate(BaseModel):
 class WorkflowActivate(BaseModel):
     """Request body for activating a workflow."""
     workflow_id: str
+    project_path: Optional[str] = None  # Project path for loading prompts
 
 
 # ==================== Endpoints ====================
@@ -206,11 +207,11 @@ async def set_active_workflow(body: WorkflowActivate) -> dict[str, Any]:
         return {"error": "Pipeline executor not initialized"}
 
     # Verify workflow exists
-    workflow = _pipeline_executor.load_workflow(body.workflow_id)
+    workflow = _pipeline_executor.load_workflow(body.workflow_id, body.project_path)
     if not workflow:
         return {"error": f"Workflow '{body.workflow_id}' not found"}
 
-    _pipeline_executor.set_active_workflow(body.workflow_id)
+    _pipeline_executor.set_active_workflow(body.workflow_id, body.project_path)
 
     return {
         "status": "activated",

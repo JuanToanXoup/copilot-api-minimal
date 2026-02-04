@@ -127,8 +127,9 @@ class AgentConnection:
                 try:
                     message = await asyncio.wait_for(self.ws.recv(), timeout=1)
                     data = json.loads(message)
+                    msg_type = data.get("type", "")
 
-                    if data.get("type") == "copilotPromptResult":
+                    if msg_type == "copilotPromptResult":
                         self.manager.broadcast.log_activity(
                             "prompt_response",
                             self.port,
@@ -148,6 +149,12 @@ class AgentConnection:
                             future = self._pending_responses.pop(self.instance_id)
                             if not future.done():
                                 future.set_result(data)
+
+                    # Handle command responses (newAgentSession, etc.)
+                    elif msg_type in self._pending_responses:
+                        future = self._pending_responses.pop(msg_type)
+                        if not future.done():
+                            future.set_result(data)
 
                 except asyncio.TimeoutError:
                     continue
@@ -195,6 +202,27 @@ class AgentConnection:
         except Exception as e:
             self._pending_responses.pop(self.instance_id, None)
             return {"error": str(e)}
+
+    async def send_command(self, command_type: str, timeout: float = 5.0) -> dict:
+        """Send a command and wait for response."""
+        if not self.ws or not self.manager.agents.get(self.instance_id, {}).get("connected"):
+            return {"error": "Not connected"}
+
+        try:
+            future: asyncio.Future = asyncio.get_event_loop().create_future()
+            self._pending_responses[command_type] = future
+
+            await self.ws.send(json.dumps({"type": command_type}))
+
+            result = await asyncio.wait_for(future, timeout=timeout)
+            return result
+
+        except asyncio.TimeoutError:
+            self._pending_responses.pop(command_type, None)
+            return {"error": "Timeout", "type": command_type}
+        except Exception as e:
+            self._pending_responses.pop(command_type, None)
+            return {"error": str(e), "type": command_type}
 
 
 class AgentManager:
@@ -246,6 +274,16 @@ class AgentManager:
         for conn in self.connections.values():
             if self.agents.get(conn.instance_id, {}).get("connected"):
                 return conn
+        return None
+
+    def get_agent_for_project(self, project_path: str) -> Optional[AgentConnection]:
+        """Get a connected agent that matches the given project path."""
+        registry = self.read_registry()
+        for instance_id, entry in registry.items():
+            if entry.get("projectPath") == project_path:
+                conn = self.connections.get(instance_id)
+                if conn and self.agents.get(instance_id, {}).get("connected"):
+                    return conn
         return None
 
     async def connect_agent(self, instance_id: str, entry: RegistryEntry) -> bool:

@@ -194,6 +194,9 @@ export interface PromptBlockNodeData {
   promptTemplateId: string | null;
   // Runtime variable bindings (overrides for this specific block instance)
   variableBindings: VariableBinding[];
+  // Declared inputs - only these context fields will be passed to the prompt
+  // Examples: ["error_message", "test_file", "previous_node_id.response"]
+  inputs: string[];
   // Runtime state (not persisted)
   status: 'idle' | 'waiting' | 'running' | 'success' | 'error';
   resolvedPrompt?: string; // The prompt after variable substitution

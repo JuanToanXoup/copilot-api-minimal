@@ -112,7 +112,46 @@ object CopilotChatToolWindowUtil {
     // =========================================================================
 
     fun startNewAgentSession(project: Project): Boolean {
-        return clickActionButton(project, CopilotClassNames.NEW_AGENT_SESSION_ACTION, "NewAgentSession")
+        if (!activateCopilotChatToolWindow(project)) {
+            LOG.error("startNewAgentSession: Failed to activate tool window")
+            return false
+        }
+
+        // Search in the entire tool window, not just chat panel (toolbar is outside chat panel)
+        val toolWindowComponent = getToolWindowComponent(project)
+        if (toolWindowComponent == null) {
+            LOG.error("startNewAgentSession: Tool window component not found")
+            return false
+        }
+
+        // Button class names to try
+        val buttonClasses = listOf(
+            CopilotClassNames.KEYBOARD_ACCESSIBLE_ACTION_BUTTON,
+            "com.intellij.openapi.actionSystem.impl.ActionButtonWithText",
+            "com.intellij.openapi.actionSystem.impl.ActionButton"
+        )
+
+        // Try each action variant with each button class
+        for (actionClass in CopilotClassNames.NEW_SESSION_ACTION_VARIANTS) {
+            for (buttonClass in buttonClasses) {
+                val button = ComponentFinder.findButtonWithAction(
+                    toolWindowComponent,
+                    buttonClass,
+                    actionClass
+                )
+                if (button != null) {
+                    LOG.info("startNewAgentSession: Found button with action=$actionClass, buttonClass=$buttonClass")
+                    if (ReflectionUtil.click(button)) {
+                        LOG.info("startNewAgentSession: Successfully clicked New Chat button")
+                        return true
+                    }
+                    LOG.error("startNewAgentSession: Failed to invoke click()")
+                }
+            }
+        }
+
+        LOG.warn("startNewAgentSession: New Chat button not found with any known action class")
+        return false
     }
 
     // =========================================================================
