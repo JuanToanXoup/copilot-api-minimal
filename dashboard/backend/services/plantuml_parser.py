@@ -856,6 +856,7 @@ class WorkflowConverter:
         """
         self._node_counter = 0
         self._edge_counter = 0
+        self._pending_fork_ends = []  # Track branch endpoints that need connection
 
         nodes = []
         edges = []
@@ -948,6 +949,13 @@ class WorkflowConverter:
         if prev_node_id:
             edge = self._create_edge(prev_node_id, node_id)
             edges.append(edge)
+
+        # Connect any pending fork branch endpoints to this node
+        # (these are branches that need to merge, typically into an aggregator)
+        for pending_id in self._pending_fork_ends:
+            edge = self._create_edge(pending_id, node_id)
+            edges.append(edge)
+        self._pending_fork_ends = []  # Clear after connecting
 
         return nodes, edges, node_id
 
@@ -1135,7 +1143,13 @@ class WorkflowConverter:
             if branch_prev_id and branch_prev_id != prev_node_id:
                 branch_last_ids.append(branch_prev_id)
 
-        # Return last node from first branch (aggregator should connect all branches)
+        # Store all branch endpoints except the first for later connection
+        # The first one is returned as last_id and will be connected normally
+        # Additional branches are stored in _pending_fork_ends to be connected
+        # to the next node (typically an aggregator)
+        if len(branch_last_ids) > 1:
+            self._pending_fork_ends.extend(branch_last_ids[1:])
+
         return nodes, edges, branch_last_ids[0] if branch_last_ids else prev_node_id
 
     def _convert_loop(
