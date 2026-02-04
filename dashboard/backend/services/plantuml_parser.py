@@ -1210,7 +1210,7 @@ class WorkflowConverter:
         """Calculate node positions using hierarchical layout.
 
         Uses BFS from workflowStart to assign levels.
-        X = level * 300
+        X = level * 400
         Y = centered within level, parallel branches stacked vertically
         """
         if not nodes:
@@ -1274,7 +1274,7 @@ class WorkflowConverter:
 
         # Assign positions
         node_positions = {}
-        x_spacing = 300
+        x_spacing = 400
         y_spacing = 150
 
         for level, node_ids in level_nodes.items():

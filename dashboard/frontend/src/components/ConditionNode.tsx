@@ -22,7 +22,7 @@ function ConditionNode({ data, selected }: ConditionNodeProps) {
 
   return (
     <div className={clsx(
-      'bg-white rounded-lg shadow-md border-2 w-[200px] transition-all',
+      'bg-white rounded-lg shadow-md border-2 w-[270px] transition-all',
       status === 'evaluating' && 'border-amber-400',
       status === 'true' && 'border-green-400',
       status === 'false' && 'border-red-400',

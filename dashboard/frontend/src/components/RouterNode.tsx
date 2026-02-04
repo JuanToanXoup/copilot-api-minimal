@@ -19,7 +19,7 @@ function RouterNode({ data, selected }: RouterNodeProps) {
 
   return (
     <div className={clsx(
-      'bg-white rounded-lg shadow-md border-2 w-[200px] transition-all',
+      'bg-white rounded-lg shadow-md border-2 w-[270px] transition-all',
       status === 'routing' && 'border-purple-400',
       status === 'complete' && 'border-green-400',
       status === 'idle' && 'border-purple-200',

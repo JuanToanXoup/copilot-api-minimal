@@ -18,7 +18,7 @@ function OutputNode({ data, selected }: OutputNodeProps) {
 
   return (
     <div className={clsx(
-      'bg-white rounded-lg shadow-md border-2 w-[200px] transition-all',
+      'bg-white rounded-lg shadow-md border-2 w-[270px] transition-all',
       status === 'complete' && 'border-green-400',
       status === 'error' && 'border-red-400',
       status === 'idle' && 'border-slate-200',

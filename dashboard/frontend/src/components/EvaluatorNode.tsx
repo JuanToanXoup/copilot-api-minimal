@@ -19,7 +19,7 @@ function EvaluatorNode({ data, selected }: EvaluatorNodeProps) {
 
   return (
     <div className={clsx(
-      'bg-white rounded-lg shadow-md border-2 w-[200px] transition-all',
+      'bg-white rounded-lg shadow-md border-2 w-[270px] transition-all',
       status === 'evaluating' && 'border-emerald-400',
       status === 'approved' && 'border-green-400',
       status === 'rejected' && 'border-red-400',

@@ -124,7 +124,7 @@ function AgentNode({ id, data }: AgentNodeProps) {
 
   return (
     <div className={clsx(
-      'rounded-lg shadow-md border-2 w-[280px] transition-all',
+      'rounded-lg shadow-md border-2 w-[370px] transition-all',
       statusColors[status]
     )}>
       {/* Header */}

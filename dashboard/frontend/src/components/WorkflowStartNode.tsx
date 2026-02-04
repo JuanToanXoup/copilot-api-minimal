@@ -32,7 +32,7 @@ function WorkflowStartNode({ data, selected }: WorkflowStartNodeProps) {
   return (
     <div
       className={clsx(
-        'bg-white rounded-lg shadow-md border-2 w-[280px] transition-all',
+        'bg-white rounded-lg shadow-md border-2 w-[370px] transition-all',
         status === 'running' && 'border-blue-400',
         status === 'complete' && 'border-green-400',
         status === 'idle' && 'border-blue-200',

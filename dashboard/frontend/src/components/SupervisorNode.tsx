@@ -31,7 +31,7 @@ function SupervisorNode({ data }: SupervisorNodeProps) {
 
   return (
     <div className={clsx(
-      'bg-white rounded-lg shadow-lg border-2 w-[380px] overflow-hidden',
+      'bg-white rounded-lg shadow-lg border-2 w-[505px] overflow-hidden',
       status === 'thinking' && 'border-purple-400',
       status === 'routing' && 'border-blue-400',
       status === 'complete' && 'border-green-400',

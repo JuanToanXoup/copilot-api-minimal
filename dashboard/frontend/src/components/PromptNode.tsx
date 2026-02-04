@@ -23,7 +23,7 @@ function PromptNode({ data }: PromptNodeProps) {
 
   return (
     <div className={clsx(
-      'bg-white rounded-xl shadow-lg border-2 p-4 min-w-[320px]',
+      'bg-white rounded-xl shadow-lg border-2 p-4 min-w-[425px]',
       data.status === 'running' && 'border-blue-400',
       data.status === 'success' && 'border-green-400',
       data.status === 'error' && 'border-red-400',
