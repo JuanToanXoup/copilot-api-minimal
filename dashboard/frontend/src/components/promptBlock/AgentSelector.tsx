@@ -11,7 +11,7 @@ interface AgentSelectorProps {
 
 export function getAgentDisplayName(agent: Agent | undefined): string {
   if (!agent) return '';
-  return agent.role || (agent.agent_name !== 'Default Agent' ? agent.agent_name : null) || agent.project_name || 'Agent';
+  return agent.project_name || `:${agent.port}`;
 }
 
 export default function AgentSelector({

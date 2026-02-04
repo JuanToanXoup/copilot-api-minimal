@@ -3,7 +3,6 @@ import type { Node, Edge } from '@xyflow/react';
 import { useStore } from '../store';
 import { validateOutput, generateRetryPrompt } from '../utils/outputValidator';
 import { getExecutionOrder } from '../utils/workflowVariables';
-import { defaultRoleDescriptions, outputTypeInstructions } from '../utils/promptBuilder';
 import {
   substituteTemplateVariables,
   extractTemplateOutput,
@@ -15,7 +14,7 @@ import type { Agent, PromptBlockNodeData } from '../types';
 export type WorkflowStatus = 'idle' | 'running' | 'complete';
 
 interface WorkflowResult {
-  role: string;
+  label: string;
   response: string;
   timestamp: string;
   port?: number;
@@ -112,12 +111,11 @@ export function useWorkflowExecution({
 
       if (!agentNode) continue;
 
-      const preNodeData = agentNode.data as { role?: string; label?: string };
-      const displayRole = preNodeData.role || 'coder';
-      const displayLabel = preNodeData.label || 'Agent';
+      const preNodeData = agentNode.data as { label?: string };
+      const displayLabel = preNodeData.label || `:${agent.port}`;
 
       stepCount++;
-      history.push({ step: stepCount, action: 'route', agent: `${displayLabel} (${displayRole}) :${agent.port}` });
+      history.push({ step: stepCount, action: 'route', agent: `${displayLabel} :${agent.port}` });
 
       setNodes((nds) =>
         nds.map((node) => {
@@ -127,7 +125,7 @@ export function useWorkflowExecution({
               data: {
                 ...node.data,
                 history: [...history],
-                currentStep: `Waiting for ${displayLabel} (${displayRole})...`
+                currentStep: `Waiting for ${displayLabel}...`
               }
             };
           }
@@ -139,26 +137,19 @@ export function useWorkflowExecution({
       );
 
       const nodeData = agentNode.data as {
-        role?: string;
         outputType?: string;
         outputSchema?: string;
         label?: string;
       };
-      const role = nodeData.role || 'coder';
       const outputType = nodeData.outputType || 'text';
       const outputSchema = nodeData.outputSchema;
-      const nodeLabel = nodeData.label || 'Agent';
-
-      const roleContext = `[Role: ${role.toUpperCase()}] ${defaultRoleDescriptions[role] || ''}
-[Expected Output: ${outputType.toUpperCase()}] ${outputTypeInstructions[outputType] || ''}
-
-`;
+      const nodeLabel = nodeData.label || `:${agent.port}`;
 
       const maxRetries = 2;
       let retryCount = 0;
       let finalResponse = '';
       let isError = false;
-      let promptToSend = roleContext + currentPrompt;
+      let promptToSend = currentPrompt;
 
       while (retryCount <= maxRetries) {
         const result = await sendPromptToAgent(agent.instance_id, promptToSend);
@@ -272,7 +263,7 @@ export function useWorkflowExecution({
       );
 
       results.push({
-        role: `${nodeLabel} (${role})`,
+        label: nodeLabel,
         response: finalResponse,
         timestamp: new Date().toISOString(),
         port: agent.port,
@@ -373,14 +364,14 @@ export function useWorkflowExecution({
       );
 
       results.push({
-        role: agent.role || 'agent',
+        label: `:${agent.port}`,
         response,
         timestamp: new Date().toISOString(),
         port: agent.port,
       });
 
       if (!isError && response) {
-        currentPrompt = `Previous step (${agent.role || 'agent'}) output:\n${response}\n\nContinue with the workflow.`;
+        currentPrompt = `Previous step (:${agent.port}) output:\n${response}\n\nContinue with the workflow.`;
       }
     }
 
@@ -573,7 +564,7 @@ export function useWorkflowExecution({
                 ...node.data,
                 status: 'complete',
                 results: results.map((r) => ({
-                  role: r.label,
+                  label: r.label,
                   response: typeof r.output === 'string' ? r.output : JSON.stringify(r.output),
                   timestamp: new Date().toISOString(),
                 })),

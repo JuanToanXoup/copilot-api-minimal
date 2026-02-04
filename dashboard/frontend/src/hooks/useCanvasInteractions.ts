@@ -51,7 +51,7 @@ export function useCanvasInteractions({
         type: 'agent',
         position,
         data: {
-          label: agent.role || 'Agent',
+          label: `:${agent.port}`,
           agent,
           status: 'idle',
           response: '',

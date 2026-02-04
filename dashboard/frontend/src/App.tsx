@@ -33,11 +33,11 @@ import FlowManager from './components/FlowManager';
 import NodePalette from './components/NodePalette';
 import Sidebar from './components/Sidebar';
 import ToastContainer from './components/Toast';
-import RoleEditor from './components/RoleEditor';
 import BlockEditor from './components/BlockEditor';
 import ViewModeToggle from './components/ViewModeToggle';
 import MonitoringLayout from './components/MonitoringLayout';
 import PromptsTab from './components/PromptsTab';
+import ProjectSelector from './components/ProjectSelector';
 import { useStore } from './store';
 import { promptWorkflowTemplates, type PromptWorkflowTemplate } from './promptWorkflowTemplates';
 import { validateOutput, generateRetryPrompt } from './utils/outputValidator';
@@ -45,7 +45,6 @@ import { getHierarchicalLayout } from './utils/canvasLayout';
 import { formatErrorForToast } from './utils/errorMessages';
 import { initializeMockData } from './utils/mockData';
 import { getExecutionOrder } from './utils/workflowVariables';
-import { defaultRoleDescriptions, outputTypeInstructions } from './utils/promptBuilder';
 import type { Agent, Instance, TaskQueues, FailureState, OrchestratorEvent, PromptMetrics, PromptBlockNodeData, VariableBinding } from './types';
 
 const nodeTypes: NodeTypes = {
@@ -110,7 +109,6 @@ function AppContent() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [workflowStatus, setWorkflowStatus] = useState<'idle' | 'running' | 'complete'>('idle');
   const [selectedTemplate, setSelectedTemplate] = useState<string>(defaultTemplate.id);
-  const [showRoleEditor, setShowRoleEditor] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const isWorkflowRunningRef = useRef(false); // Ref-based guard for concurrent execution
@@ -314,7 +312,7 @@ function AppContent() {
           type: 'agent',
           position,
           data: {
-            label: agent.role || 'Agent',
+            label: `:${agent.port}`,
             agent,
             status: 'idle',
             response: '',
@@ -387,7 +385,7 @@ function AppContent() {
     setSelectedNodeId(null);
   }, []);
 
-  const onSpawnAgent = useCallback((projectPath: string, role: string) => {
+  const onSpawnAgent = useCallback((projectPath: string) => {
     if (!wsRef.current) {
       console.error('WebSocket not connected');
       addToast({
@@ -398,11 +396,10 @@ function AppContent() {
       return;
     }
 
-    console.log('Spawning agent:', { projectPath, role });
+    console.log('Spawning agent:', { projectPath });
     wsRef.current.send(JSON.stringify({
       type: 'spawn_agent',
       project_path: projectPath,
-      role: role,
     }));
   }, [addToast]);
 
@@ -429,7 +426,7 @@ function AppContent() {
     if (!wsRef.current || workflowStatus === 'running') return;
 
     setWorkflowStatus('running');
-    const results: Array<{ role: string; response: string; timestamp: string; port?: number }> = [];
+    const results: Array<{ label: string; response: string; timestamp: string; port?: number }> = [];
     const history: Array<{ step: number; action: string; agent?: string; result?: string }> = [];
     let stepCount = 0;
 
@@ -499,13 +496,12 @@ function AppContent() {
 
       if (!agentNode) continue;
 
-      // Get node config for role display
-      const preNodeData = agentNode.data as { role?: string; label?: string };
-      const displayRole = preNodeData.role || 'coder';
-      const displayLabel = preNodeData.label || 'Agent';
+      // Get node config for display
+      const preNodeData = agentNode.data as { label?: string };
+      const displayLabel = preNodeData.label || `:${agent.port}`;
 
       stepCount++;
-      history.push({ step: stepCount, action: 'route', agent: `${displayLabel} (${displayRole}) :${agent.port}` });
+      history.push({ step: stepCount, action: 'route', agent: `${displayLabel} :${agent.port}` });
 
       // Update supervisor and agent status
       setNodes((nds) =>
@@ -516,7 +512,7 @@ function AppContent() {
               data: {
                 ...node.data,
                 history: [...history],
-                currentStep: `Waiting for ${displayLabel} (${displayRole})...`
+                currentStep: `Waiting for ${displayLabel}...`
               }
             };
           }
@@ -529,27 +525,19 @@ function AppContent() {
 
       // Send to agent with validation and retry logic
       const nodeData = agentNode.data as {
-        role?: string;
         outputType?: string;
         outputSchema?: string;
         label?: string;
       };
-      const role = nodeData.role || 'coder';
       const outputType = nodeData.outputType || 'text';
       const outputSchema = nodeData.outputSchema;
       const nodeLabel = nodeData.label || 'Agent';
-
-      // Build role-aware prompt using centralized config
-      const roleContext = `[Role: ${role.toUpperCase()}] ${defaultRoleDescriptions[role] || ''}
-[Expected Output: ${outputType.toUpperCase()}] ${outputTypeInstructions[outputType] || ''}
-
-`;
 
       const maxRetries = 2;
       let retryCount = 0;
       let finalResponse = '';
       let isError = false;
-      let promptToSend = roleContext + currentPrompt;
+      let promptToSend = currentPrompt;
 
       while (retryCount <= maxRetries) {
         const result = await sendPromptToAgent(agent.instance_id, promptToSend);
@@ -670,7 +658,7 @@ function AppContent() {
       );
 
       results.push({
-        role: `${nodeLabel} (${role})`,
+        label: nodeLabel,
         response: finalResponse,
         timestamp: new Date().toISOString(),
         port: agent.port,
@@ -745,7 +733,7 @@ function AppContent() {
     );
 
     const agentNodes = getWorkflowOrder(nodes, edges);
-    const results: Array<{ role: string; response: string; timestamp: string; port?: number }> = [];
+    const results: Array<{ label: string; response: string; timestamp: string; port?: number }> = [];
 
     let currentPrompt = prompt;
 
@@ -782,14 +770,14 @@ function AppContent() {
       );
 
       results.push({
-        role: agent.role || 'agent',
+        label: `:${agent.port}`,
         response,
         timestamp: new Date().toISOString(),
         port: agent.port,
       });
 
       if (!isError && response) {
-        currentPrompt = `Previous step (${agent.role || 'agent'}) output:\n${response}\n\nContinue with the workflow.`;
+        currentPrompt = `Previous step (:${agent.port}) output:\n${response}\n\nContinue with the workflow.`;
       }
     }
 
@@ -1311,7 +1299,7 @@ function AppContent() {
               ...node.data,
               status: 'complete',
               results: results.map((r) => ({
-                role: r.label,
+                label: r.label,
                 response: typeof r.output === 'string' ? r.output : JSON.stringify(r.output),
                 timestamp: new Date().toISOString(),
               })),
@@ -1526,26 +1514,34 @@ function AppContent() {
   }, [viewMode, connected]);
 
   return (
-    <div className="flex flex-col h-screen w-screen">
+    <div className="flex flex-col h-screen w-screen bg-slate-100">
       {/* Toast notifications */}
       <ToastContainer />
 
-      {/* Role Editor Modal */}
-      <RoleEditor isOpen={showRoleEditor} onClose={() => setShowRoleEditor(false)} />
-
-      {/* Top Header Bar with View Mode Toggle */}
-      <div className="h-14 bg-white border-b border-slate-200 px-4 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <h1 className="font-semibold text-slate-800">Agent Dashboard</h1>
-          <ViewModeToggle />
+      {/* Header */}
+      <div className="flex-shrink-0">
+        {/* Top bar - dark */}
+        <div className="h-12 bg-slate-800 px-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="font-semibold text-white text-lg">Agent Dashboard</h1>
+            {/* Connection Status */}
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-700">
+              <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`} />
+              <span className="text-xs text-slate-300">
+                {connected ? 'Connected' : 'Disconnected'}
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          {/* Connection Status */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100">
-            <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-sm text-slate-600">
-              {connected ? 'Connected' : 'Disconnected'}
-            </span>
+
+        {/* Sub bar - navigation + project */}
+        <div className="h-12 bg-white border-b border-slate-200 px-4 flex items-center justify-between shadow-sm">
+          <ViewModeToggle />
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-400 uppercase tracking-wide">Project:</span>
+            <div className="w-[28rem]">
+              <ProjectSelector />
+            </div>
           </div>
         </div>
       </div>
@@ -1557,7 +1553,7 @@ function AppContent() {
         {viewMode === 'workflow' && (
           <>
             {/* Left sidebar: Workflow Templates */}
-            <div className="w-72 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden">
+            <div className="w-72 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden shadow-sm">
               <div className="flex-1 overflow-y-auto">
                 <div className="p-4">
                   <TemplateSelector

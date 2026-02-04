@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Save, FolderOpen, Download, Upload, Trash2, X, Check, Clock } from 'lucide-react';
 import clsx from 'clsx';
 import type { Node, Edge } from '@xyflow/react';
+import { useStore } from '../store';
 
 interface SavedFlow {
   name: string;
@@ -33,7 +34,16 @@ interface FlowManagerProps {
 const API_BASE = 'http://localhost:8080';
 const LOCAL_STORAGE_KEY = 'workflow-autosave';
 
+function buildApiUrl(path: string, projectPath: string | null): string {
+  const url = `${API_BASE}${path}`;
+  if (projectPath) {
+    return `${url}${url.includes('?') ? '&' : '?'}project_path=${encodeURIComponent(projectPath)}`;
+  }
+  return url;
+}
+
 export default function FlowManager({ nodes, edges, selectedTemplate, onLoadFlow }: FlowManagerProps) {
+  const { activeProjectPath } = useStore();
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [flowName, setFlowName] = useState('');
@@ -58,7 +68,7 @@ export default function FlowManager({ nodes, edges, selectedTemplate, onLoadFlow
   // Load saved flows list
   const loadFlowsList = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/flows`);
+      const response = await fetch(buildApiUrl('/api/flows', activeProjectPath));
       const data = await response.json();
       if (Array.isArray(data)) {
         setSavedFlows(data);
@@ -66,7 +76,7 @@ export default function FlowManager({ nodes, edges, selectedTemplate, onLoadFlow
     } catch (error) {
       console.error('Failed to load flows list:', error);
     }
-  }, []);
+  }, [activeProjectPath]);
 
   useEffect(() => {
     loadFlowsList();
@@ -91,7 +101,7 @@ export default function FlowManager({ nodes, edges, selectedTemplate, onLoadFlow
         edges,
       };
 
-      const response = await fetch(`${API_BASE}/api/flows`, {
+      const response = await fetch(buildApiUrl('/api/flows', activeProjectPath), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(flowData),
@@ -117,7 +127,7 @@ export default function FlowManager({ nodes, edges, selectedTemplate, onLoadFlow
   // Load flow from backend
   const handleLoad = async (name: string) => {
     try {
-      const response = await fetch(`${API_BASE}/api/flows/${encodeURIComponent(name)}`);
+      const response = await fetch(buildApiUrl(`/api/flows/${encodeURIComponent(name)}`, activeProjectPath));
       const data = await response.json();
       if (data.error) {
         showNotification('error', data.error);
@@ -136,7 +146,7 @@ export default function FlowManager({ nodes, edges, selectedTemplate, onLoadFlow
     if (!confirm(`Delete flow "${name}"?`)) return;
 
     try {
-      const response = await fetch(`${API_BASE}/api/flows/${encodeURIComponent(name)}`, {
+      const response = await fetch(buildApiUrl(`/api/flows/${encodeURIComponent(name)}`, activeProjectPath), {
         method: 'DELETE',
       });
       const result = await response.json();

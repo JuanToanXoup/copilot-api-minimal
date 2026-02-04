@@ -56,8 +56,8 @@ async def _handle_message(websocket: WebSocket, message: dict) -> None:
     if msg_type == "send_prompt":
         await _handle_send_prompt(websocket, message)
 
-    elif msg_type == "send_to_role":
-        await _handle_send_to_role(websocket, message)
+    elif msg_type == "send_to_port":
+        await _handle_send_to_port(websocket, message)
 
     elif msg_type == "spawn_agent":
         await _handle_spawn_agent(websocket, message)
@@ -88,22 +88,22 @@ async def _handle_send_prompt(websocket: WebSocket, message: dict) -> None:
     await websocket.send_text(json.dumps(response))
 
 
-async def _handle_send_to_role(websocket: WebSocket, message: dict) -> None:
-    """Handle send_to_role message."""
-    role = message.get("role")
+async def _handle_send_to_port(websocket: WebSocket, message: dict) -> None:
+    """Handle send_to_port message."""
+    port = message.get("port")
     prompt = message.get("prompt")
 
-    if not role or not prompt:
+    if not port or not prompt:
         return
 
     for instance_id, conn in _agent_manager.connections.items():
-        if conn.entry.get("role") == role:
+        if conn.entry.get("port") == port:
             if _agent_manager.agents.get(instance_id, {}).get("connected"):
                 result = await conn.send_prompt(prompt)
                 await websocket.send_text(json.dumps({
                     "type": "prompt_result",
                     "instance_id": instance_id,
-                    "role": role,
+                    "port": port,
                     "result": result,
                 }))
                 break
@@ -114,7 +114,6 @@ async def _handle_spawn_agent(websocket: WebSocket, message: dict) -> None:
     print(f"[SPAWN] Received spawn request: {message}", flush=True)
 
     project_path = message.get("project_path")
-    role = message.get("role")
     capabilities = message.get("capabilities", [])
 
     if not project_path:
@@ -124,7 +123,7 @@ async def _handle_spawn_agent(websocket: WebSocket, message: dict) -> None:
         }))
         return
 
-    result = await _spawner.spawn(project_path, role, capabilities)
+    result = await _spawner.spawn(project_path, capabilities)
     await websocket.send_text(json.dumps({
         "type": "spawn_result",
         **result,

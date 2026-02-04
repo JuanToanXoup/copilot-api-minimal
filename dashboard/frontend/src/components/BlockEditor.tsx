@@ -141,7 +141,7 @@ function PromptBlockConfig({
           <option value="">Select...</option>
           {agents.filter(a => a.connected).map((agent) => (
             <option key={agent.instance_id} value={agent.instance_id}>
-              :{agent.port} ({agent.role || 'agent'})
+              :{agent.port} - {agent.project_name}
             </option>
           ))}
         </select>

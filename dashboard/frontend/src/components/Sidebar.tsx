@@ -1,51 +1,48 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Bot, Circle, Plus, X, FolderOpen, Play } from 'lucide-react';
 import clsx from 'clsx';
 import type { Agent } from '../types';
-import { roleConfigs, getRoleConfig, roleOptions as roleConfigOptions } from '../utils/roleConfig';
-import { getDisplayName, formatProjectName } from '../utils/agentNaming';
+import { getAgentLabel, formatProjectName } from '../utils/agentNaming';
+import { useStore } from '../store';
 
 interface SidebarProps {
   agents: Agent[];
   onDragStart: (event: React.DragEvent, agent: Agent) => void;
-  onSpawnAgent?: (projectPath: string, role: string) => void;
+  onSpawnAgent?: (projectPath: string) => void;
 }
 
-const roleOptions = roleConfigOptions.map(r => r.value);
-
 export default function Sidebar({ agents, onDragStart, onSpawnAgent }: SidebarProps) {
+  const { setActiveProjectPath } = useStore();
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
   const [newAgentPath, setNewAgentPath] = useState('');
-  const [newAgentRole, setNewAgentRole] = useState('coder');
   const [isSpawning, setIsSpawning] = useState(false);
+  const [setAsActiveProject, setSetAsActiveProject] = useState(true);
 
   const connectedAgents = agents.filter(a => a.connected);
   const disconnectedAgents = agents.filter(a => !a.connected);
-
-  // Collect existing agent names for unique name generation
-  const existingNames = useMemo(() =>
-    agents.map(a => a.agent_name).filter((n): n is string => !!n),
-    [agents]
-  );
 
   const handleSpawn = async () => {
     if (!newAgentPath.trim() || !onSpawnAgent) return;
 
     setIsSpawning(true);
     try {
-      onSpawnAgent(newAgentPath.trim(), newAgentRole);
+      const projectPath = newAgentPath.trim();
+      onSpawnAgent(projectPath);
+
+      // Auto-set as active project if checkbox is checked
+      if (setAsActiveProject) {
+        setActiveProjectPath(projectPath);
+      }
+
       setShowNewAgentModal(false);
       setNewAgentPath('');
-      setNewAgentRole('coder');
     } finally {
       setIsSpawning(false);
     }
   };
 
   const AgentCard = ({ agent }: { agent: Agent }) => {
-    const roleConfig = getRoleConfig(agent.role);
-    const RoleIcon = roleConfig.icon;
-    const displayName = getDisplayName(agent, existingNames);
+    const portLabel = getAgentLabel(agent);
     const projectInfo = formatProjectName(agent.project_path);
 
     return (
@@ -54,40 +51,34 @@ export default function Sidebar({ agents, onDragStart, onSpawnAgent }: SidebarPr
         onDragStart={(e) => onDragStart(e, agent)}
         className={clsx(
           'bg-white rounded-lg border-2 p-2 cursor-grab active:cursor-grabbing',
-          'hover:shadow-md transition-all',
-          roleConfig.borderColor,
+          'hover:shadow-md transition-all border-slate-200',
           'hover:border-blue-400'
         )}
       >
-        {/* Agent name and status */}
+        {/* Port and status */}
         <div className="flex items-center justify-between mb-1.5">
-          <span className="font-semibold text-sm text-slate-700 truncate">
-            {displayName}
+          <span className="font-mono font-semibold text-sm text-slate-700">
+            {portLabel}
           </span>
-          <Circle className={clsx(
-            'w-2 h-2 flex-shrink-0',
-            agent.connected ? 'fill-green-500 text-green-500' : 'fill-red-500 text-red-500'
-          )} />
-        </div>
-
-        {/* Role badge and port */}
-        <div className="flex items-center justify-between">
-          <span className={clsx(
-            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium',
-            roleConfig.bgColor,
-            roleConfig.color
-          )}>
-            <RoleIcon className="w-3 h-3" />
-            {roleConfig.label}
-          </span>
-          <span className="font-mono text-xs text-slate-400">
-            :{agent.port}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className={clsx(
+              'text-[10px] font-medium px-1.5 py-0.5 rounded',
+              agent.connected
+                ? 'bg-green-100 text-green-700'
+                : 'bg-red-100 text-red-700'
+            )}>
+              {agent.connected ? 'Available' : 'Offline'}
+            </span>
+            <Circle className={clsx(
+              'w-2 h-2 flex-shrink-0',
+              agent.connected ? 'fill-green-500 text-green-500' : 'fill-red-500 text-red-500'
+            )} />
+          </div>
         </div>
 
         {/* Project path with tooltip */}
         <div
-          className="text-xs text-slate-400 mt-1.5 truncate"
+          className="text-xs text-slate-500 truncate"
           title={projectInfo.needsTooltip ? projectInfo.full : undefined}
         >
           {projectInfo.display}
@@ -214,33 +205,19 @@ export default function Sidebar({ agents, onDragStart, onSpawnAgent }: SidebarPr
                 </p>
               </div>
 
-              {/* Role */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Agent Role
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {roleOptions.map((role) => {
-                    const config = roleConfigs[role];
-                    const Icon = config.icon;
-                    return (
-                      <button
-                        key={role}
-                        onClick={() => setNewAgentRole(role)}
-                        className={clsx(
-                          'px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5',
-                          newAgentRole === role
-                            ? clsx(config.bgColor, config.color, 'ring-2 ring-offset-1', config.borderColor.replace('border-', 'ring-'))
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        )}
-                      >
-                        <Icon className="w-4 h-4" />
-                        {config.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              {/* Set as Active Project */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={setAsActiveProject}
+                  onChange={(e) => setSetAsActiveProject(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-700">Set as active project context</span>
+              </label>
+              <p className="text-xs text-slate-500 -mt-2 ml-6">
+                Workflows and prompts will be saved to this project's .citi-agent folder
+              </p>
             </div>
 
             {/* Modal Footer */}

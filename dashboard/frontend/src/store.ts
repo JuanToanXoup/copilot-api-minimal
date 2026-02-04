@@ -10,7 +10,6 @@ import type {
   ViewMode,
   PromptTemplate,
 } from './types';
-import { roleConfigs } from './utils/roleConfig';
 
 export interface ToastItem {
   id: string;
@@ -18,13 +17,6 @@ export interface ToastItem {
   title: string;
   message?: string;
   duration?: number; // ms, 0 = no auto-dismiss
-}
-
-export interface RoleDefinition {
-  id: string;
-  label: string;
-  description: string; // The actual prompt instructions for this role
-  outputInstruction: string; // What kind of output to produce
 }
 
 // Default prompt templates (like Postman's default requests in a collection)
@@ -84,14 +76,6 @@ Provide feedback on:
   },
 ];
 
-// Default role definitions - derived from unified roleConfigs
-const defaultRoleDefinitions: RoleDefinition[] = Object.values(roleConfigs).map((config) => ({
-  id: config.value,
-  label: config.label,
-  description: config.promptDescription,
-  outputInstruction: config.outputInstruction,
-}));
-
 interface Store {
   // Agents (source of truth for agent configurations)
   agents: Agent[];
@@ -124,10 +108,9 @@ interface Store {
   addToast: (toast: Omit<ToastItem, 'id'>) => void;
   removeToast: (id: string) => void;
 
-  // Role definitions (editable)
-  roleDefinitions: RoleDefinition[];
-  updateRoleDefinition: (id: string, updates: Partial<Omit<RoleDefinition, 'id'>>) => void;
-  resetRoleDefinitions: () => void;
+  // Active project path for project-local storage
+  activeProjectPath: string | null;
+  setActiveProjectPath: (path: string | null) => void;
 
   // =====================
   // Self-Healing Test Architecture State
@@ -227,13 +210,9 @@ export const useStore = create<Store>((set, get) => ({
     toasts: state.toasts.filter((t) => t.id !== id),
   })),
 
-  roleDefinitions: defaultRoleDefinitions,
-  updateRoleDefinition: (id, updates) => set((state) => ({
-    roleDefinitions: state.roleDefinitions.map((role) =>
-      role.id === id ? { ...role, ...updates } : role
-    ),
-  })),
-  resetRoleDefinitions: () => set({ roleDefinitions: defaultRoleDefinitions }),
+  // Active project path for project-local storage
+  activeProjectPath: null,
+  setActiveProjectPath: (path) => set({ activeProjectPath: path }),
 
   // =====================
   // Self-Healing Test Architecture State

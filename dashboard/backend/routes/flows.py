@@ -2,27 +2,33 @@
 
 import json
 from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
-from config import FLOWS_DIR
+from config import get_project_paths
 from models import FlowSummary
 
 router = APIRouter(prefix="/api/flows", tags=["flows"])
 
 
-def _ensure_flows_dir() -> None:
-    """Ensure flows directory exists."""
-    FLOWS_DIR.mkdir(parents=True, exist_ok=True)
+def _get_flows_dir(project_path: str | None) -> Path:
+    """Get flows directory, creating if needed."""
+    paths = get_project_paths(project_path)
+    flows_dir = paths["flows_dir"]
+    flows_dir.mkdir(parents=True, exist_ok=True)
+    return flows_dir
 
 
 @router.get("")
-async def list_flows() -> list[FlowSummary]:
+async def list_flows(
+    project_path: str | None = Query(None, description="Project path for local storage")
+) -> list[FlowSummary]:
     """List all saved flows."""
-    _ensure_flows_dir()
+    flows_dir = _get_flows_dir(project_path)
     flows = []
 
-    for file in FLOWS_DIR.glob("*.json"):
+    for file in flows_dir.glob("*.json"):
         try:
             with open(file) as f:
                 data = json.load(f)
@@ -42,10 +48,13 @@ async def list_flows() -> list[FlowSummary]:
 
 
 @router.get("/{name}")
-async def get_flow(name: str):
+async def get_flow(
+    name: str,
+    project_path: str | None = Query(None, description="Project path for local storage")
+):
     """Get a specific flow by name."""
-    _ensure_flows_dir()
-    file_path = FLOWS_DIR / f"{name}.json"
+    flows_dir = _get_flows_dir(project_path)
+    file_path = flows_dir / f"{name}.json"
 
     if not file_path.exists():
         return {"error": "Flow not found"}
@@ -58,9 +67,12 @@ async def get_flow(name: str):
 
 
 @router.post("")
-async def save_flow(flow: dict):
+async def save_flow(
+    flow: dict,
+    project_path: str | None = Query(None, description="Project path for local storage")
+):
     """Save a flow."""
-    _ensure_flows_dir()
+    flows_dir = _get_flows_dir(project_path)
 
     name = flow.get("name")
     if not name:
@@ -71,7 +83,7 @@ async def save_flow(flow: dict):
     if not safe_name:
         return {"error": "Invalid flow name"}
 
-    file_path = FLOWS_DIR / f"{safe_name}.json"
+    file_path = flows_dir / f"{safe_name}.json"
 
     # Add/update timestamps
     now = datetime.now().isoformat()
@@ -88,10 +100,13 @@ async def save_flow(flow: dict):
 
 
 @router.delete("/{name}")
-async def delete_flow(name: str):
+async def delete_flow(
+    name: str,
+    project_path: str | None = Query(None, description="Project path for local storage")
+):
     """Delete a flow."""
-    _ensure_flows_dir()
-    file_path = FLOWS_DIR / f"{name}.json"
+    flows_dir = _get_flows_dir(project_path)
+    file_path = flows_dir / f"{name}.json"
 
     if not file_path.exists():
         return {"error": "Flow not found"}

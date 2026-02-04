@@ -18,7 +18,6 @@ class SpawnerService:
     async def spawn(
         self,
         project_path: str,
-        role: Optional[str] = None,
         capabilities: Optional[list] = None,
     ) -> dict:
         """Spawn IDE with the given project."""
@@ -30,12 +29,12 @@ class SpawnerService:
             return {"error": f"Path does not exist: {project_path}"}
 
         # Try AppleScript first (macOS)
-        result = await self._try_applescript(project_path, role)
+        result = await self._try_applescript(project_path)
         if result:
             return result
 
         # Fallback to direct binary
-        result = await self._try_direct_binary(project_path, role)
+        result = await self._try_direct_binary(project_path)
         if result:
             return result
 
@@ -45,7 +44,6 @@ class SpawnerService:
     async def _try_applescript(
         self,
         project_path: str,
-        role: Optional[str],
     ) -> Optional[dict]:
         """Try launching via AppleScript (macOS)."""
         applescript = f'''
@@ -66,8 +64,8 @@ class SpawnerService:
 
             if proc.returncode == 0:
                 print("[SPAWN] AppleScript succeeded", flush=True)
-                self._log_spawn(project_path, role)
-                return self._success_response(project_path, role)
+                self._log_spawn(project_path)
+                return self._success_response(project_path)
             else:
                 print(f"[SPAWN] AppleScript failed: {stderr.decode()}", flush=True)
         except Exception as e:
@@ -78,7 +76,6 @@ class SpawnerService:
     async def _try_direct_binary(
         self,
         project_path: str,
-        role: Optional[str],
     ) -> Optional[dict]:
         """Try launching via direct binary."""
         idea_binary = "/Applications/IntelliJ IDEA CE.app/Contents/MacOS/idea"
@@ -107,8 +104,8 @@ class SpawnerService:
                 pass
 
             print(f"[SPAWN] Command succeeded", flush=True)
-            self._log_spawn(project_path, role)
-            return self._success_response(project_path, role)
+            self._log_spawn(project_path)
+            return self._success_response(project_path)
 
         except FileNotFoundError as e:
             print(f"[SPAWN] Command not found: {e}", flush=True)
@@ -117,21 +114,19 @@ class SpawnerService:
 
         return None
 
-    def _log_spawn(self, project_path: str, role: Optional[str]) -> None:
+    def _log_spawn(self, project_path: str) -> None:
         """Log spawn activity."""
         self.broadcast.log_activity(
             "agent_spawning",
             0,
             "dashboard",
             project_path=project_path,
-            role=role,
         )
 
-    def _success_response(self, project_path: str, role: Optional[str]) -> dict:
+    def _success_response(self, project_path: str) -> dict:
         """Create success response."""
         return {
             "status": "launched",
             "project_path": project_path,
-            "role": role,
             "message": "IDE launched. Agent will appear when ready.",
         }

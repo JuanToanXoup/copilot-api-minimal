@@ -63,7 +63,6 @@ class AgentConnection:
                 "agent_connected",
                 self.port,
                 self.instance_id,
-                role=self.entry.get("role"),
             )
 
             # Broadcast full agent data so new agents appear in dashboard
@@ -73,9 +72,7 @@ class AgentConnection:
                 "port": self.port,
                 "project_path": project_path,
                 "project_name": project_path.split("/")[-1] if project_path else "Unknown",
-                "role": self.entry.get("role"),
                 "capabilities": self.entry.get("capabilities", []),
-                "agent_name": self.entry.get("agentName"),
                 "connected": True,
                 "health": "healthy",
                 "last_heartbeat": now,
@@ -136,7 +133,6 @@ class AgentConnection:
                             "prompt_response",
                             self.port,
                             self.instance_id,
-                            role=self.entry.get("role"),
                             prompt=data.get("prompt", "")[:100],
                             response=data.get("content", "")[:300],
                             status=data.get("status"),
@@ -163,7 +159,6 @@ class AgentConnection:
                 "agent_disconnected",
                 self.port,
                 self.instance_id,
-                role=self.entry.get("role"),
             )
             await self.manager.broadcast.broadcast_agent_delta(self.instance_id, {
                 "connected": False,
@@ -180,7 +175,6 @@ class AgentConnection:
                 "prompt_sent",
                 self.port,
                 self.instance_id,
-                role=self.entry.get("role"),
                 prompt=prompt[:100],
             )
 
@@ -235,9 +229,7 @@ class AgentManager:
                 "port": entry.get("port"),
                 "project_path": project_path,
                 "project_name": project_path.split("/")[-1] if project_path else "Unknown",
-                "role": entry.get("role"),
                 "capabilities": entry.get("capabilities", []),
-                "agent_name": entry.get("agentName"),
                 "connected": agent_state.get("connected", False),
                 "last_heartbeat": agent_state.get("last_heartbeat"),
                 "health": agent_state.get("health", "disconnected"),

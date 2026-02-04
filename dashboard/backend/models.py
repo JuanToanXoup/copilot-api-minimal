@@ -20,9 +20,7 @@ class AgentSummary(TypedDict):
     port: Optional[int]
     project_path: str
     project_name: str
-    role: Optional[str]
     capabilities: list[str]
-    agent_name: Optional[str]
     connected: bool
     last_heartbeat: Optional[str]
     health: HealthStatus
@@ -32,9 +30,7 @@ class RegistryEntry(TypedDict, total=False):
     """Entry in the agent registry file."""
     port: int
     projectPath: str
-    role: str
     capabilities: list[str]
-    agentName: str
 
 
 class ActivityEvent(TypedDict, total=False):
@@ -43,7 +39,6 @@ class ActivityEvent(TypedDict, total=False):
     event_type: str
     port: int
     instance_id: str
-    role: Optional[str]
     prompt: Optional[str]
     response: Optional[str]
     status: Optional[str]

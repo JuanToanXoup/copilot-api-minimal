@@ -1,18 +1,14 @@
 import { useState } from 'react';
 import { Bot, X, FolderOpen } from 'lucide-react';
 import clsx from 'clsx';
-import { roleConfigs, roleOptions as roleConfigOptions } from '../../utils/roleConfig';
-
-const roleOptions = roleConfigOptions.map(r => r.value);
 
 interface SpawnAgentModalProps {
   onClose: () => void;
-  onSpawn: (projectPath: string, role: string) => void;
+  onSpawn: (projectPath: string) => void;
 }
 
 export default function SpawnAgentModal({ onClose, onSpawn }: SpawnAgentModalProps) {
   const [projectPath, setProjectPath] = useState('');
-  const [role, setRole] = useState('coder');
   const [isSpawning, setIsSpawning] = useState(false);
 
   const handleSpawn = async () => {
@@ -20,7 +16,7 @@ export default function SpawnAgentModal({ onClose, onSpawn }: SpawnAgentModalPro
 
     setIsSpawning(true);
     try {
-      onSpawn(projectPath.trim(), role);
+      onSpawn(projectPath.trim());
       onClose();
     } finally {
       setIsSpawning(false);
@@ -64,34 +60,6 @@ export default function SpawnAgentModal({ onClose, onSpawn }: SpawnAgentModalPro
             <p className="text-xs text-slate-500 mt-1">
               Full path to the project folder to open in IntelliJ
             </p>
-          </div>
-
-          {/* Role */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Agent Role
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {roleOptions.map((roleKey) => {
-                const config = roleConfigs[roleKey];
-                const Icon = config.icon;
-                return (
-                  <button
-                    key={roleKey}
-                    onClick={() => setRole(roleKey)}
-                    className={clsx(
-                      'px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-1.5',
-                      role === roleKey
-                        ? clsx(config.bgColor, config.color, 'ring-2 ring-offset-1', config.borderColor.replace('border-', 'ring-'))
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    )}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {config.label}
-                  </button>
-                );
-              })}
-            </div>
           </div>
         </div>
 

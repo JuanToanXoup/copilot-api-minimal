@@ -1,13 +1,10 @@
-import { memo, useState, useCallback, useMemo } from 'react';
+import { memo, useState, useCallback } from 'react';
 import { Handle, Position, useReactFlow } from '@xyflow/react';
-import { Loader2, CheckCircle2, XCircle, Circle, ChevronDown, ChevronUp, Code, FileJson, FileText, FileCode, Maximize2, Minimize2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Circle, ChevronDown, ChevronUp, Code, FileJson, FileText, FileCode, Maximize2, Minimize2, Server } from 'lucide-react';
 import clsx from 'clsx';
 import type { Agent } from '../types';
-import { getRoleConfig, roleOptions } from '../utils/roleConfig';
-import { getDisplayName } from '../utils/agentNaming';
+import { getAgentLabel } from '../utils/agentNaming';
 import { getUserFriendlyError, isErrorResponse } from '../utils/errorMessages';
-import { generatePromptPreview } from '../utils/promptBuilder';
-import { useStore } from '../store';
 
 // Output type options
 const outputTypes = [
@@ -24,7 +21,6 @@ interface AgentNodeData {
   prompt?: string;
   response?: string;
   // Configurable fields
-  role?: string;
   outputType?: string;
   outputSchema?: string;
 }
@@ -42,40 +38,21 @@ function decodeHtml(html: string): string {
 }
 
 function AgentNode({ id, data }: AgentNodeProps) {
-  const { agent, status, prompt, response, role, outputType, outputSchema } = data;
+  const { agent, status, prompt, response, outputType, outputSchema } = data;
   const { setNodes } = useReactFlow();
-  const { roleDefinitions } = useStore();
   const [isExpanded, setIsExpanded] = useState(true); // Default to expanded to show config
   const [isResponseExpanded, setIsResponseExpanded] = useState(false);
-  const [showRoleDropdown, setShowRoleDropdown] = useState(false);
   const [showOutputTypeDropdown, setShowOutputTypeDropdown] = useState(false);
   const [showSchemaEditor, setShowSchemaEditor] = useState(false);
-  const [showPromptPreview, setShowPromptPreview] = useState(false);
 
-  const selectedRoleConfig = roleOptions.find(r => r.value === role) || roleOptions[0];
   const selectedOutputType = outputTypes.find(t => t.value === outputType) || outputTypes[0];
   const OutputIcon = selectedOutputType.icon;
 
-  // Get role config for enhanced styling
-  const roleConfig = getRoleConfig(role);
-  const RoleIcon = roleConfig.icon;
-  const displayName = agent ? getDisplayName(agent) : data.label || 'Agent';
+  const displayName = agent ? getAgentLabel(agent) : data.label || 'Agent';
 
   // Process error response for user-friendly display
   const hasError = status === 'error' || (response && isErrorResponse(response));
   const friendlyError = hasError && response ? getUserFriendlyError(response) : null;
-
-  // Generate prompt preview based on current configuration
-  const promptPreview = useMemo(() => {
-    return generatePromptPreview(
-      {
-        role: role || 'coder',
-        outputType: outputType || 'text',
-        outputSchema: outputSchema,
-      },
-      roleDefinitions
-    );
-  }, [role, outputType, outputSchema, roleDefinitions]);
 
   // Update node data
   const updateNodeData = useCallback((updates: Partial<AgentNodeData>) => {
@@ -86,11 +63,6 @@ function AgentNode({ id, data }: AgentNodeProps) {
       return node;
     }));
   }, [id, setNodes]);
-
-  const handleRoleSelect = (value: string) => {
-    updateNodeData({ role: value });
-    setShowRoleDropdown(false);
-  };
 
   const handleOutputTypeSelect = (value: string) => {
     updateNodeData({ outputType: value });
@@ -161,15 +133,10 @@ function AgentNode({ id, data }: AgentNodeProps) {
         hasError ? 'bg-red-50' : 'bg-white'
       )}>
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <RoleIcon className={clsx('w-4 h-4 flex-shrink-0', roleConfig.color)} />
+          <Server className="w-4 h-4 flex-shrink-0 text-blue-500" />
           <span className="font-semibold text-slate-700 text-sm truncate">
             {displayName}
           </span>
-          {agent && (
-            <span className="text-xs text-slate-400 flex-shrink-0">
-              :{agent.port}
-            </span>
-          )}
           {agent?.connected && (
             <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" title="Connected" />
           )}
@@ -191,46 +158,6 @@ function AgentNode({ id, data }: AgentNodeProps) {
 
       {isExpanded && (
         <>
-          {/* Role Selector */}
-          <div className="px-3 py-2 border-b bg-slate-50">
-            <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">
-              Role
-            </label>
-            <div className="relative mt-1">
-              <button
-                onClick={() => setShowRoleDropdown(!showRoleDropdown)}
-                className={clsx(
-                  'w-full px-2 py-1.5 text-xs rounded border text-left flex items-center justify-between',
-                  'bg-white hover:border-blue-300 transition-colors',
-                  showRoleDropdown ? 'border-blue-400 ring-1 ring-blue-200' : 'border-slate-200'
-                )}
-              >
-                <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', selectedRoleConfig.bgColor, selectedRoleConfig.color)}>
-                  {selectedRoleConfig.label}
-                </span>
-                <ChevronDown className="w-3 h-3 text-slate-400" />
-              </button>
-              {showRoleDropdown && (
-                <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded shadow-lg max-h-48 overflow-y-auto">
-                  {roleOptions.map(option => (
-                    <button
-                      key={option.value}
-                      onClick={() => handleRoleSelect(option.value)}
-                      className={clsx(
-                        'w-full px-2 py-1.5 text-left hover:bg-slate-50 flex items-center',
-                        role === option.value && 'bg-blue-50'
-                      )}
-                    >
-                      <span className={clsx('px-1.5 py-0.5 rounded text-[10px] font-medium', option.bgColor, option.color)}>
-                        {option.label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* Output Type Selector */}
           <div className="px-3 py-2 border-b bg-slate-50">
             <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">
@@ -307,42 +234,6 @@ function AgentNode({ id, data }: AgentNodeProps) {
                 />
                 <div className="text-[9px] text-slate-400 mt-1">
                   JSON schema to validate output format
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Prompt Preview Section */}
-          <div className="px-3 py-2 border-b bg-slate-50">
-            <button
-              onClick={() => setShowPromptPreview(!showPromptPreview)}
-              className="w-full text-[10px] text-slate-600 hover:text-blue-600 flex items-center justify-between gap-1 font-medium"
-            >
-              <span className="flex items-center gap-1">
-                {showPromptPreview ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                {showPromptPreview ? 'Hide' : 'Preview'} Generated Prompt
-              </span>
-              <ChevronDown className={clsx(
-                'w-3 h-3 transition-transform',
-                showPromptPreview && 'rotate-180'
-              )} />
-            </button>
-
-            {showPromptPreview && (
-              <div className="mt-2 nodrag nowheel">
-                <div className="text-[9px] text-slate-500 mb-1 uppercase tracking-wide font-medium">
-                  System Context (prepended to input)
-                </div>
-                <div className={clsx(
-                  'text-[10px] font-mono rounded border p-2',
-                  'bg-amber-50 border-amber-200 text-slate-700',
-                  'whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto'
-                )}>
-                  {promptPreview}
-                </div>
-                <div className="text-[9px] text-slate-400 mt-1.5 flex items-start gap-1">
-                  <span className="text-amber-500">*</span>
-                  <span>This context is automatically added before your workflow input when the agent runs.</span>
                 </div>
               </div>
             )}
@@ -433,10 +324,6 @@ function AgentNode({ id, data }: AgentNodeProps) {
           onClick={() => setIsExpanded(true)}
         >
           <div className="flex items-center gap-2 text-[10px] text-slate-500">
-            <span className={clsx('px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5', roleConfig.bgColor, roleConfig.color)}>
-              <RoleIcon className="w-2.5 h-2.5" />
-              {roleConfig.label}
-            </span>
             <span className={clsx('px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5', selectedOutputType.color)}>
               <OutputIcon className="w-2.5 h-2.5" />
               {selectedOutputType.label}
@@ -449,7 +336,7 @@ function AgentNode({ id, data }: AgentNodeProps) {
           </div>
           <div className="text-[9px] text-slate-400 mt-1 flex items-center gap-1">
             <ChevronDown className="w-3 h-3" />
-            Click to configure role, output & schema
+            Click to configure output & schema
           </div>
         </div>
       )}

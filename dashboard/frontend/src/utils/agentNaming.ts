@@ -1,79 +1,11 @@
 import type { Agent } from '../types';
 
-// Adjectives for agent names - positive, professional qualities
-const adjectives = [
-  'Swift', 'Keen', 'Sharp', 'Bold', 'Bright',
-  'Quick', 'Agile', 'Smart', 'Clever', 'Nimble',
-  'Rapid', 'Steady', 'Ready', 'Eager', 'Active',
-  'Prime', 'Core', 'Main', 'Chief', 'Lead',
-];
-
-// Greek letters for sequential naming
-const greekLetters = [
-  'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon',
-  'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa',
-  'Lambda', 'Mu', 'Nu', 'Xi', 'Omicron',
-  'Pi', 'Rho', 'Sigma', 'Tau', 'Upsilon',
-];
-
 /**
- * Generate a unique agent name based on role and existing names
- * Format: "Adjective-GreekLetter" (e.g., "Swift-Alpha", "Keen-Beta")
+ * Get the display label for an agent (port-based)
  */
-export function generateAgentName(
-  role: string | null,
-  existingNames: string[] = []
-): string {
-  const normalizedRole = role?.toLowerCase() || 'coder';
-
-  // Use role to seed the adjective selection for consistency
-  const roleIndex = normalizedRole.charCodeAt(0) % adjectives.length;
-  const baseAdjective = adjectives[roleIndex];
-
-  // Find the next available greek letter
-  for (const letter of greekLetters) {
-    const candidateName = `${baseAdjective}-${letter}`;
-    if (!existingNames.includes(candidateName)) {
-      return candidateName;
-    }
-  }
-
-  // Fallback: use a different adjective
-  for (const adj of adjectives) {
-    for (const letter of greekLetters) {
-      const candidateName = `${adj}-${letter}`;
-      if (!existingNames.includes(candidateName)) {
-        return candidateName;
-      }
-    }
-  }
-
-  // Last resort: add a number
-  return `${baseAdjective}-${Date.now() % 1000}`;
-}
-
-/**
- * Get the display name for an agent
- * Prefers role over "Default Agent", then agent_name if meaningful
- */
-export function getDisplayName(
-  agent: Agent | null | undefined,
-  existingNames: string[] = []
-): string {
+export function getAgentLabel(agent: Agent | null | undefined): string {
   if (!agent) return 'Unknown';
-
-  // Prefer role if set (capitalize first letter)
-  if (agent.role) {
-    return agent.role.charAt(0).toUpperCase() + agent.role.slice(1);
-  }
-
-  // Use explicit agent_name if available and not "Default Agent"
-  if (agent.agent_name && agent.agent_name !== 'Default Agent') {
-    return agent.agent_name;
-  }
-
-  // Generate a name based on role
-  return generateAgentName(agent.role, existingNames);
+  return `:${agent.port}`;
 }
 
 /**
@@ -109,17 +41,4 @@ export function formatProjectName(
  */
 export function getPortLabel(port: number): string {
   return `:${port}`;
-}
-
-/**
- * Create a stable hash for consistent naming across sessions
- */
-export function hashString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return Math.abs(hash);
 }

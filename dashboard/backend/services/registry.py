@@ -70,16 +70,12 @@ class RegistryService:
 
                     # Check for changes and broadcast delta
                     changes = {}
-                    if new_entry.get("role") != old_entry.get("role"):
-                        changes["role"] = new_entry.get("role")
                     if new_entry.get("projectPath") != old_entry.get("projectPath"):
                         project_path = new_entry.get("projectPath", "")
                         changes["project_path"] = project_path
                         changes["project_name"] = project_path.split("/")[-1] if project_path else "Unknown"
                     if new_entry.get("capabilities") != old_entry.get("capabilities"):
                         changes["capabilities"] = new_entry.get("capabilities", [])
-                    if new_entry.get("agentName") != old_entry.get("agentName"):
-                        changes["agent_name"] = new_entry.get("agentName")
 
                     if changes:
                         await self.broadcast.broadcast_agent_delta(instance_id, changes)

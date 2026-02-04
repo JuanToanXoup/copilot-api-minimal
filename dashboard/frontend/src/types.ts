@@ -5,9 +5,7 @@ export interface Agent {
   port: number;
   project_path: string;
   project_name: string;
-  role: string | null;
   capabilities: string[];
-  agent_name: string | null;
   connected: boolean;
   last_heartbeat?: string;
   health?: AgentHealth;
@@ -18,7 +16,6 @@ export interface ActivityEvent {
   event_type: 'prompt_sent' | 'prompt_response' | 'agent_connected' | 'agent_disconnected';
   port: number;
   instance_id: string;
-  role: string | null;
   prompt?: string;
   response?: string;
   status?: string;

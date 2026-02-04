@@ -9,16 +9,19 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
-from config import PROMPTS_DIR
+from config import get_project_paths
 
 router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 
 
-def _ensure_prompts_dir() -> None:
-    """Ensure prompts directory exists."""
-    PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+def _get_prompts_dir(project_path: str | None) -> Path:
+    """Get prompts directory, creating if needed."""
+    paths = get_project_paths(project_path)
+    prompts_dir = paths["prompts_dir"]
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    return prompts_dir
 
 
 def _sanitize_filename(name: str) -> str:
@@ -114,13 +117,15 @@ def _format_markdown_prompt(prompt: dict[str, Any]) -> str:
 
 
 @router.get("")
-async def list_prompts() -> list[dict[str, Any]]:
+async def list_prompts(
+    project_path: str | None = Query(None, description="Project path for local storage")
+) -> list[dict[str, Any]]:
     """List all saved prompt templates, including those in nested subfolders."""
-    _ensure_prompts_dir()
+    prompts_dir = _get_prompts_dir(project_path)
     prompts = []
 
     # Get prompts from root directory
-    for file in PROMPTS_DIR.glob("*.md"):
+    for file in prompts_dir.glob("*.md"):
         try:
             content = file.read_text()
             prompt = _parse_markdown_prompt(content)
@@ -157,7 +162,7 @@ async def list_prompts() -> list[dict[str, Any]]:
                 scan_folder(subfolder, nested_name)
 
     # Start scanning from top-level folders
-    for folder in PROMPTS_DIR.iterdir():
+    for folder in prompts_dir.iterdir():
         if folder.is_dir() and not folder.name.startswith('.'):
             scan_folder(folder, folder.name)
 
@@ -165,12 +170,15 @@ async def list_prompts() -> list[dict[str, Any]]:
 
 
 @router.get("/{prompt_id}")
-async def get_prompt(prompt_id: str) -> dict[str, Any]:
+async def get_prompt(
+    prompt_id: str,
+    project_path: str | None = Query(None, description="Project path for local storage")
+) -> dict[str, Any]:
     """Get a specific prompt by ID."""
-    _ensure_prompts_dir()
+    prompts_dir = _get_prompts_dir(project_path)
 
     # Try exact filename match first
-    file_path = PROMPTS_DIR / f"{prompt_id}.md"
+    file_path = prompts_dir / f"{prompt_id}.md"
     if file_path.exists():
         try:
             content = file_path.read_text()
@@ -181,7 +189,7 @@ async def get_prompt(prompt_id: str) -> dict[str, Any]:
             return {"error": str(e)}
 
     # Search by ID in frontmatter
-    for file in PROMPTS_DIR.glob("*.md"):
+    for file in prompts_dir.glob("*.md"):
         try:
             content = file.read_text()
             prompt = _parse_markdown_prompt(content)
@@ -194,9 +202,12 @@ async def get_prompt(prompt_id: str) -> dict[str, Any]:
 
 
 @router.post("")
-async def save_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
+async def save_prompt(
+    prompt: dict[str, Any],
+    project_path: str | None = Query(None, description="Project path for local storage")
+) -> dict[str, Any]:
     """Save a prompt template as a markdown file."""
-    _ensure_prompts_dir()
+    prompts_dir = _get_prompts_dir(project_path)
 
     name = prompt.get('name')
     if not name:
@@ -209,10 +220,10 @@ async def save_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
     # Determine target folder
     folder = prompt.pop('folder', None)
     if folder:
-        target_dir = PROMPTS_DIR / folder
+        target_dir = prompts_dir / folder
         target_dir.mkdir(parents=True, exist_ok=True)
     else:
-        target_dir = PROMPTS_DIR
+        target_dir = prompts_dir
 
     # Use sourceFilename if provided (preserves original filename when editing)
     # Don't pop it - we need to keep it for the response
@@ -251,12 +262,16 @@ async def save_prompt(prompt: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.delete("/{prompt_id}")
-async def delete_prompt(prompt_id: str, folder: str | None = None) -> dict[str, Any]:
+async def delete_prompt(
+    prompt_id: str,
+    folder: str | None = None,
+    project_path: str | None = Query(None, description="Project path for local storage")
+) -> dict[str, Any]:
     """Delete a prompt template."""
-    _ensure_prompts_dir()
+    prompts_dir = _get_prompts_dir(project_path)
 
     # Determine the base directory
-    base_dir = PROMPTS_DIR / folder if folder else PROMPTS_DIR
+    base_dir = prompts_dir / folder if folder else prompts_dir
 
     # Try exact filename match first
     file_path = base_dir / f"{prompt_id}.md"
@@ -280,7 +295,7 @@ async def delete_prompt(prompt_id: str, folder: str | None = None) -> dict[str, 
 
     # If no folder specified, also search subfolders
     if not folder:
-        for subfolder in PROMPTS_DIR.iterdir():
+        for subfolder in prompts_dir.iterdir():
             if subfolder.is_dir() and not subfolder.name.startswith('.'):
                 for file in subfolder.glob("*.md"):
                     try:
@@ -298,9 +313,11 @@ async def delete_prompt(prompt_id: str, folder: str | None = None) -> dict[str, 
 # ============== Folder Management ==============
 
 @router.get("/folders/list")
-async def list_folders() -> list[dict[str, Any]]:
+async def list_folders(
+    project_path: str | None = Query(None, description="Project path for local storage")
+) -> list[dict[str, Any]]:
     """List all prompt folders, including nested ones."""
-    _ensure_prompts_dir()
+    prompts_dir = _get_prompts_dir(project_path)
     folders = []
 
     def scan_folders(base_path, prefix=""):
@@ -319,14 +336,17 @@ async def list_folders() -> list[dict[str, Any]]:
                 # Recursively scan subfolders
                 scan_folders(item, f"{folder_name}/")
 
-    scan_folders(PROMPTS_DIR)
+    scan_folders(prompts_dir)
     return sorted(folders, key=lambda x: x['name'].lower())
 
 
 @router.post("/folders")
-async def create_folder(data: dict[str, Any]) -> dict[str, Any]:
+async def create_folder(
+    data: dict[str, Any],
+    project_path: str | None = Query(None, description="Project path for local storage")
+) -> dict[str, Any]:
     """Create a new prompt folder, optionally inside a parent folder."""
-    _ensure_prompts_dir()
+    prompts_dir = _get_prompts_dir(project_path)
 
     name = data.get('name', '').strip()
     if not name:
@@ -341,13 +361,13 @@ async def create_folder(data: dict[str, Any]) -> dict[str, Any]:
     parent = data.get('parent')
     if parent and parent != '__root__':
         # Create inside parent folder
-        parent_path = PROMPTS_DIR / parent
+        parent_path = prompts_dir / parent
         if not parent_path.exists() or not parent_path.is_dir():
             return {"error": f"Parent folder '{parent}' not found"}
         folder_path = parent_path / safe_name
         full_name = f"{parent}/{safe_name}"
     else:
-        folder_path = PROMPTS_DIR / safe_name
+        folder_path = prompts_dir / safe_name
         full_name = safe_name
 
     if folder_path.exists():
@@ -361,15 +381,19 @@ async def create_folder(data: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.put("/folders/{folder_name}")
-async def rename_folder(folder_name: str, data: dict[str, Any]) -> dict[str, Any]:
+async def rename_folder(
+    folder_name: str,
+    data: dict[str, Any],
+    project_path: str | None = Query(None, description="Project path for local storage")
+) -> dict[str, Any]:
     """Rename a prompt folder."""
-    _ensure_prompts_dir()
+    prompts_dir = _get_prompts_dir(project_path)
 
     new_name = data.get('name', '').strip()
     if not new_name:
         return {"error": "New folder name is required"}
 
-    old_path = PROMPTS_DIR / folder_name
+    old_path = prompts_dir / folder_name
     if not old_path.exists() or not old_path.is_dir():
         return {"error": "Folder not found"}
 
@@ -378,7 +402,7 @@ async def rename_folder(folder_name: str, data: dict[str, Any]) -> dict[str, Any
     if not safe_name:
         return {"error": "Invalid folder name"}
 
-    new_path = PROMPTS_DIR / safe_name
+    new_path = prompts_dir / safe_name
     if new_path.exists() and new_path != old_path:
         return {"error": "A folder with that name already exists"}
 
@@ -390,11 +414,15 @@ async def rename_folder(folder_name: str, data: dict[str, Any]) -> dict[str, Any
 
 
 @router.delete("/folders/{folder_name}")
-async def delete_folder(folder_name: str, force: bool = False) -> dict[str, Any]:
+async def delete_folder(
+    folder_name: str,
+    force: bool = False,
+    project_path: str | None = Query(None, description="Project path for local storage")
+) -> dict[str, Any]:
     """Delete a prompt folder. If force=True, deletes folder with contents."""
-    _ensure_prompts_dir()
+    prompts_dir = _get_prompts_dir(project_path)
 
-    folder_path = PROMPTS_DIR / folder_name
+    folder_path = prompts_dir / folder_name
     if not folder_path.exists() or not folder_path.is_dir():
         return {"error": "Folder not found"}
 
@@ -416,9 +444,12 @@ async def delete_folder(folder_name: str, force: bool = False) -> dict[str, Any]
 
 
 @router.post("/move")
-async def move_prompt(data: dict[str, Any]) -> dict[str, Any]:
+async def move_prompt(
+    data: dict[str, Any],
+    project_path: str | None = Query(None, description="Project path for local storage")
+) -> dict[str, Any]:
     """Move a prompt to a different folder."""
-    _ensure_prompts_dir()
+    prompts_dir = _get_prompts_dir(project_path)
 
     prompt_id = data.get('promptId')
     source_folder = data.get('sourceFolder')  # None for root
@@ -428,7 +459,7 @@ async def move_prompt(data: dict[str, Any]) -> dict[str, Any]:
         return {"error": "Prompt ID is required"}
 
     # Determine source directory
-    source_dir = PROMPTS_DIR / source_folder if source_folder else PROMPTS_DIR
+    source_dir = prompts_dir / source_folder if source_folder else prompts_dir
 
     # Find the prompt file
     source_file = None
@@ -444,11 +475,11 @@ async def move_prompt(data: dict[str, Any]) -> dict[str, Any]:
 
     # Determine target directory
     if target_folder:
-        target_dir = PROMPTS_DIR / target_folder
+        target_dir = prompts_dir / target_folder
         if not target_dir.exists():
             target_dir.mkdir(parents=True, exist_ok=True)
     else:
-        target_dir = PROMPTS_DIR
+        target_dir = prompts_dir
 
     target_file = target_dir / source_file.name
 

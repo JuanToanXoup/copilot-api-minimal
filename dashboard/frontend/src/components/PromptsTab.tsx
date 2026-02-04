@@ -26,6 +26,14 @@ import type { PromptTemplate, ExtractionMode, PromptPriority } from '../types';
 
 const API_BASE = 'http://localhost:8080';
 
+function buildApiUrl(path: string, projectPath: string | null): string {
+  const url = `${API_BASE}${path}`;
+  if (projectPath) {
+    return `${url}${url.includes('?') ? '&' : '?'}project_path=${encodeURIComponent(projectPath)}`;
+  }
+  return url;
+}
+
 // Predefined category suggestions
 const CATEGORY_SUGGESTIONS = [
   'Classification',
@@ -47,6 +55,7 @@ export default function PromptsTab() {
     updatePromptTemplate,
     deletePromptTemplate,
     addToast,
+    activeProjectPath,
   } = useStore();
 
   const [selectedPrompt, setSelectedPrompt] = useState<PromptTemplate | null>(null);
@@ -111,7 +120,7 @@ export default function PromptsTab() {
   const loadFromBackend = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/prompts`);
+      const response = await fetch(buildApiUrl('/api/prompts', activeProjectPath));
       if (response.ok) {
         const prompts = await response.json();
         if (prompts.length > 0) {
@@ -127,7 +136,7 @@ export default function PromptsTab() {
 
   const loadFolders = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/prompts/folders/list`);
+      const response = await fetch(buildApiUrl('/api/prompts/folders/list', activeProjectPath));
       if (response.ok) {
         const data = await response.json();
         setFolders(data);
@@ -139,7 +148,7 @@ export default function PromptsTab() {
 
   const createFolder = async (name: string, parent?: string | null) => {
     try {
-      const response = await fetch(`${API_BASE}/api/prompts/folders`, {
+      const response = await fetch(buildApiUrl('/api/prompts/folders', activeProjectPath), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, parent: parent || creatingFolderIn }),
@@ -161,7 +170,7 @@ export default function PromptsTab() {
 
   const renameFolder = async (oldName: string, newName: string) => {
     try {
-      const response = await fetch(`${API_BASE}/api/prompts/folders/${encodeURIComponent(oldName)}`, {
+      const response = await fetch(buildApiUrl(`/api/prompts/folders/${encodeURIComponent(oldName)}`, activeProjectPath), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName }),
@@ -183,8 +192,9 @@ export default function PromptsTab() {
 
   const deleteFolder = async (name: string, force: boolean = false) => {
     try {
+      const baseUrl = buildApiUrl(`/api/prompts/folders/${encodeURIComponent(name)}`, activeProjectPath);
       const response = await fetch(
-        `${API_BASE}/api/prompts/folders/${encodeURIComponent(name)}?force=${force}`,
+        `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}force=${force}`,
         { method: 'DELETE' }
       );
       const result = await response.json();
@@ -226,7 +236,7 @@ export default function PromptsTab() {
   const movePromptToFolder = async (promptId: string, sourceFolder: string | null, targetFolder: string | null) => {
     if (sourceFolder === targetFolder) return false;
     try {
-      const response = await fetch(`${API_BASE}/api/prompts/move`, {
+      const response = await fetch(buildApiUrl('/api/prompts/move', activeProjectPath), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ promptId, sourceFolder, targetFolder }),
@@ -283,7 +293,7 @@ export default function PromptsTab() {
 
   const saveToBackend = async (template: PromptTemplate): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE}/api/prompts`, {
+      const response = await fetch(buildApiUrl('/api/prompts', activeProjectPath), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(template),
@@ -303,7 +313,7 @@ export default function PromptsTab() {
 
   const deleteFromBackend = async (id: string): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE}/api/prompts/${encodeURIComponent(id)}`, {
+      const response = await fetch(buildApiUrl(`/api/prompts/${encodeURIComponent(id)}`, activeProjectPath), {
         method: 'DELETE',
       });
       const result = await response.json();
