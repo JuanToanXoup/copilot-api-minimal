@@ -1,0 +1,776 @@
+{
+  "name": "BDD Gherkin Failure Debugger",
+  "description": "Imported from PlantUML",
+  "nodes": [
+    {
+      "id": "workflowStart-start-1",
+      "type": "workflowStart",
+      "position": {
+        "x": 50,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Start",
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-parse-failure-output-2",
+      "type": "promptBlock",
+      "position": {
+        "x": 450,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Parse Failure Output",
+        "agentId": null,
+        "promptTemplateId": "parse-bdd-failure",
+        "variableBindings": [
+          {
+            "variableName": "input",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-extract-error-contex-3",
+      "type": "promptBlock",
+      "position": {
+        "x": 850,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Extract Error Context",
+        "agentId": null,
+        "promptTemplateId": "extract-error-context",
+        "variableBindings": [
+          {
+            "variableName": "parsedFailure",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-locate-feature-file-4",
+      "type": "promptBlock",
+      "position": {
+        "x": 1250,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Locate Feature File",
+        "agentId": null,
+        "promptTemplateId": "locate-feature-file",
+        "variableBindings": [
+          {
+            "variableName": "errorContext",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-analyze-failed-scena-5",
+      "type": "promptBlock",
+      "position": {
+        "x": 1650,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Analyze Failed Scenario",
+        "agentId": null,
+        "promptTemplateId": "analyze-gherkin-scenario",
+        "variableBindings": [
+          {
+            "variableName": "featureFile",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-find-step-definition-6",
+      "type": "promptBlock",
+      "position": {
+        "x": 2050,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Find Step Definition",
+        "agentId": null,
+        "promptTemplateId": "find-step-definition",
+        "variableBindings": [
+          {
+            "variableName": "failedStep",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-analyze-step-impleme-7",
+      "type": "promptBlock",
+      "position": {
+        "x": 2450,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Analyze Step Implementation",
+        "agentId": null,
+        "promptTemplateId": "analyze-step-impl",
+        "variableBindings": [
+          {
+            "variableName": "stepDefinition",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "condition-error-type-8",
+      "type": "condition",
+      "position": {
+        "x": 2850,
+        "y": 200.0
+      },
+      "data": {
+        "label": "If error type",
+        "variable": "error type",
+        "operator": "==",
+        "value": "true",
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-inspect-page-locator-9",
+      "type": "promptBlock",
+      "position": {
+        "x": 3250,
+        "y": 50.0
+      },
+      "data": {
+        "label": "Inspect Page Locators",
+        "agentId": null,
+        "promptTemplateId": "inspect-locators",
+        "variableBindings": [
+          {
+            "variableName": "stepDefinition",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-validate-selector-st-10",
+      "type": "promptBlock",
+      "position": {
+        "x": 3650,
+        "y": -25.0
+      },
+      "data": {
+        "label": "Validate Selector Strategy",
+        "agentId": null,
+        "promptTemplateId": "validate-selectors",
+        "variableBindings": [
+          {
+            "variableName": "locators",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-check-page-object-11",
+      "type": "promptBlock",
+      "position": {
+        "x": 3250,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Check Page Object",
+        "agentId": null,
+        "promptTemplateId": "analyze-page-object",
+        "variableBindings": [
+          {
+            "variableName": "pageClass",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "aggregator-combine-locator-anal-12",
+      "type": "aggregator",
+      "position": {
+        "x": 3650,
+        "y": 125.0
+      },
+      "data": {
+        "label": "Combine Locator Analysis",
+        "mode": "merge",
+        "strategy": "merge",
+        "status": "idle"
+      }
+    },
+    {
+      "id": "condition-data-mismatch-13",
+      "type": "condition",
+      "position": {
+        "x": 3250,
+        "y": 350.0
+      },
+      "data": {
+        "label": "If data mismatch",
+        "variable": "data mismatch",
+        "operator": "==",
+        "value": "true",
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-locate-test-data-fil-14",
+      "type": "promptBlock",
+      "position": {
+        "x": 3650,
+        "y": 275.0
+      },
+      "data": {
+        "label": "Locate Test Data Files",
+        "agentId": null,
+        "promptTemplateId": "find-test-data",
+        "variableBindings": [
+          {
+            "variableName": "scenarioTags",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-analyze-data-binding-15",
+      "type": "promptBlock",
+      "position": {
+        "x": 4050,
+        "y": 50.0
+      },
+      "data": {
+        "label": "Analyze Data Bindings",
+        "agentId": null,
+        "promptTemplateId": "analyze-data-bindings",
+        "variableBindings": [
+          {
+            "variableName": "dataFiles",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-validate-test-data-16",
+      "type": "promptBlock",
+      "position": {
+        "x": 4450,
+        "y": 125.0
+      },
+      "data": {
+        "label": "Validate Test Data",
+        "agentId": null,
+        "promptTemplateId": "validate-test-data",
+        "variableBindings": [
+          {
+            "variableName": "dataBindings",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "condition-timeout-async-17",
+      "type": "condition",
+      "position": {
+        "x": 3650,
+        "y": 425.0
+      },
+      "data": {
+        "label": "If timeout/async",
+        "variable": "timeout/async",
+        "operator": "==",
+        "value": "true",
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-check-wait-strategie-18",
+      "type": "promptBlock",
+      "position": {
+        "x": 4050,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Check Wait Strategies",
+        "agentId": null,
+        "promptTemplateId": "analyze-waits",
+        "variableBindings": [
+          {
+            "variableName": "stepDefinition",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-check-runner-config-19",
+      "type": "promptBlock",
+      "position": {
+        "x": 4050,
+        "y": 350.0
+      },
+      "data": {
+        "label": "Check Runner Config",
+        "agentId": null,
+        "promptTemplateId": "analyze-runner-config",
+        "variableBindings": [
+          {
+            "variableName": "runnerFile",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "aggregator-combine-env-analysis-20",
+      "type": "aggregator",
+      "position": {
+        "x": 4450,
+        "y": 275.0
+      },
+      "data": {
+        "label": "Combine Env Analysis",
+        "mode": "merge",
+        "strategy": "merge",
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-analyze-assertion-lo-21",
+      "type": "promptBlock",
+      "position": {
+        "x": 4050,
+        "y": 500.0
+      },
+      "data": {
+        "label": "Analyze Assertion Logic",
+        "agentId": null,
+        "promptTemplateId": "analyze-assertions",
+        "variableBindings": [
+          {
+            "variableName": "stepDefinition",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-check-expected-vs-ac-22",
+      "type": "promptBlock",
+      "position": {
+        "x": 4450,
+        "y": 425.0
+      },
+      "data": {
+        "label": "Check Expected vs Actual",
+        "agentId": null,
+        "promptTemplateId": "compare-expected-actual",
+        "variableBindings": [
+          {
+            "variableName": "assertionDetails",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "aggregator-compile-debug-findin-23",
+      "type": "aggregator",
+      "position": {
+        "x": 4050,
+        "y": -100.0
+      },
+      "data": {
+        "label": "Compile Debug Findings",
+        "mode": "merge",
+        "strategy": "merge",
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-generate-root-cause--24",
+      "type": "promptBlock",
+      "position": {
+        "x": 4450,
+        "y": -25.0
+      },
+      "data": {
+        "label": "Generate Root Cause Analysis",
+        "agentId": null,
+        "promptTemplateId": "root-cause-analysis",
+        "variableBindings": [
+          {
+            "variableName": "debugFindings",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-propose-fix-strategi-25",
+      "type": "promptBlock",
+      "position": {
+        "x": 4850,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Propose Fix Strategies",
+        "agentId": null,
+        "promptTemplateId": "propose-fixes",
+        "variableBindings": [
+          {
+            "variableName": "rootCause",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "condition-can-auto-fix-26",
+      "type": "condition",
+      "position": {
+        "x": 5250,
+        "y": 200.0
+      },
+      "data": {
+        "label": "If can auto-fix",
+        "variable": "can auto-fix",
+        "operator": "==",
+        "value": "true",
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-generate-code-fix-27",
+      "type": "promptBlock",
+      "position": {
+        "x": 5650,
+        "y": 125.0
+      },
+      "data": {
+        "label": "Generate Code Fix",
+        "agentId": null,
+        "promptTemplateId": "generate-code-fix",
+        "variableBindings": [
+          {
+            "variableName": "fixStrategy",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-generate-manual-fix--28",
+      "type": "promptBlock",
+      "position": {
+        "x": 5650,
+        "y": 275.0
+      },
+      "data": {
+        "label": "Generate Manual Fix Guide",
+        "agentId": null,
+        "promptTemplateId": "generate-fix-guide",
+        "variableBindings": [
+          {
+            "variableName": "fixStrategy",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "promptBlock-create-debug-report-29",
+      "type": "promptBlock",
+      "position": {
+        "x": 6050,
+        "y": 200.0
+      },
+      "data": {
+        "label": "Create Debug Report",
+        "agentId": null,
+        "promptTemplateId": "create-debug-report",
+        "variableBindings": [
+          {
+            "variableName": "fixOutput",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      }
+    },
+    {
+      "id": "output-end-30",
+      "type": "output",
+      "position": {
+        "x": 6450,
+        "y": 200.0
+      },
+      "data": {
+        "label": "End",
+        "results": [],
+        "status": "idle"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "workflowStart-start-1",
+      "target": "promptBlock-parse-failure-output-2",
+      "animated": true
+    },
+    {
+      "id": "e2",
+      "source": "promptBlock-parse-failure-output-2",
+      "target": "promptBlock-extract-error-contex-3",
+      "animated": true
+    },
+    {
+      "id": "e3",
+      "source": "promptBlock-extract-error-contex-3",
+      "target": "promptBlock-locate-feature-file-4",
+      "animated": true
+    },
+    {
+      "id": "e4",
+      "source": "promptBlock-locate-feature-file-4",
+      "target": "promptBlock-analyze-failed-scena-5",
+      "animated": true
+    },
+    {
+      "id": "e5",
+      "source": "promptBlock-analyze-failed-scena-5",
+      "target": "promptBlock-find-step-definition-6",
+      "animated": true
+    },
+    {
+      "id": "e6",
+      "source": "promptBlock-find-step-definition-6",
+      "target": "promptBlock-analyze-step-impleme-7",
+      "animated": true
+    },
+    {
+      "id": "e7",
+      "source": "promptBlock-analyze-step-impleme-7",
+      "target": "condition-error-type-8",
+      "animated": true
+    },
+    {
+      "id": "e8",
+      "source": "condition-error-type-8",
+      "target": "promptBlock-inspect-page-locator-9",
+      "animated": true,
+      "sourceHandle": "true"
+    },
+    {
+      "id": "e9",
+      "source": "promptBlock-inspect-page-locator-9",
+      "target": "promptBlock-validate-selector-st-10",
+      "animated": true
+    },
+    {
+      "id": "e10",
+      "source": "condition-error-type-8",
+      "target": "promptBlock-check-page-object-11",
+      "animated": true
+    },
+    {
+      "id": "e11",
+      "source": "promptBlock-validate-selector-st-10",
+      "target": "aggregator-combine-locator-anal-12",
+      "animated": true
+    },
+    {
+      "id": "e12",
+      "source": "promptBlock-check-page-object-11",
+      "target": "aggregator-combine-locator-anal-12",
+      "animated": true
+    },
+    {
+      "id": "e13",
+      "source": "condition-error-type-8",
+      "target": "condition-data-mismatch-13",
+      "animated": true,
+      "sourceHandle": "false"
+    },
+    {
+      "id": "e14",
+      "source": "condition-data-mismatch-13",
+      "target": "promptBlock-locate-test-data-fil-14",
+      "animated": true,
+      "sourceHandle": "true"
+    },
+    {
+      "id": "e15",
+      "source": "promptBlock-locate-test-data-fil-14",
+      "target": "promptBlock-analyze-data-binding-15",
+      "animated": true
+    },
+    {
+      "id": "e16",
+      "source": "promptBlock-analyze-data-binding-15",
+      "target": "promptBlock-validate-test-data-16",
+      "animated": true
+    },
+    {
+      "id": "e17",
+      "source": "condition-data-mismatch-13",
+      "target": "condition-timeout-async-17",
+      "animated": true,
+      "sourceHandle": "false"
+    },
+    {
+      "id": "e18",
+      "source": "condition-timeout-async-17",
+      "target": "promptBlock-check-wait-strategie-18",
+      "animated": true,
+      "sourceHandle": "true"
+    },
+    {
+      "id": "e19",
+      "source": "condition-timeout-async-17",
+      "target": "promptBlock-check-runner-config-19",
+      "animated": true
+    },
+    {
+      "id": "e20",
+      "source": "promptBlock-check-wait-strategie-18",
+      "target": "aggregator-combine-env-analysis-20",
+      "animated": true
+    },
+    {
+      "id": "e21",
+      "source": "promptBlock-check-runner-config-19",
+      "target": "aggregator-combine-env-analysis-20",
+      "animated": true
+    },
+    {
+      "id": "e22",
+      "source": "condition-timeout-async-17",
+      "target": "promptBlock-analyze-assertion-lo-21",
+      "animated": true,
+      "sourceHandle": "false"
+    },
+    {
+      "id": "e23",
+      "source": "promptBlock-analyze-assertion-lo-21",
+      "target": "promptBlock-check-expected-vs-ac-22",
+      "animated": true
+    },
+    {
+      "id": "e24",
+      "source": "aggregator-combine-locator-anal-12",
+      "target": "aggregator-compile-debug-findin-23",
+      "animated": true
+    },
+    {
+      "id": "e25",
+      "source": "promptBlock-check-expected-vs-ac-22",
+      "target": "aggregator-compile-debug-findin-23",
+      "animated": true
+    },
+    {
+      "id": "e26",
+      "source": "aggregator-combine-env-analysis-20",
+      "target": "aggregator-compile-debug-findin-23",
+      "animated": true
+    },
+    {
+      "id": "e27",
+      "source": "promptBlock-validate-test-data-16",
+      "target": "aggregator-compile-debug-findin-23",
+      "animated": true
+    },
+    {
+      "id": "e28",
+      "source": "aggregator-compile-debug-findin-23",
+      "target": "promptBlock-generate-root-cause--24",
+      "animated": true
+    },
+    {
+      "id": "e29",
+      "source": "promptBlock-generate-root-cause--24",
+      "target": "promptBlock-propose-fix-strategi-25",
+      "animated": true
+    },
+    {
+      "id": "e30",
+      "source": "promptBlock-propose-fix-strategi-25",
+      "target": "condition-can-auto-fix-26",
+      "animated": true
+    },
+    {
+      "id": "e31",
+      "source": "condition-can-auto-fix-26",
+      "target": "promptBlock-generate-code-fix-27",
+      "animated": true,
+      "sourceHandle": "true"
+    },
+    {
+      "id": "e32",
+      "source": "condition-can-auto-fix-26",
+      "target": "promptBlock-generate-manual-fix--28",
+      "animated": true,
+      "sourceHandle": "false"
+    },
+    {
+      "id": "e33",
+      "source": "promptBlock-generate-code-fix-27",
+      "target": "promptBlock-create-debug-report-29",
+      "animated": true
+    },
+    {
+      "id": "e34",
+      "source": "promptBlock-generate-manual-fix--28",
+      "target": "promptBlock-create-debug-report-29",
+      "animated": true
+    },
+    {
+      "id": "e35",
+      "source": "promptBlock-create-debug-report-29",
+      "target": "output-end-30",
+      "animated": true
+    }
+  ],
+  "templateId": "simple-chain",
+  "createdAt": "2026-02-04T05:06:11.172241",
+  "updatedAt": "2026-02-04T05:06:11.172241"
+}

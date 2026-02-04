@@ -1,0 +1,98 @@
+{
+  "name": "Test",
+  "description": "",
+  "templateId": "simple-chain",
+  "nodes": [
+    {
+      "id": "start-1",
+      "type": "workflowStart",
+      "position": {
+        "x": 50,
+        "y": 110
+      },
+      "data": {
+        "label": "Start"
+      },
+      "measured": {
+        "width": 280,
+        "height": 180
+      }
+    },
+    {
+      "id": "prompt-1",
+      "type": "promptBlock",
+      "position": {
+        "x": 410,
+        "y": 160
+      },
+      "data": {
+        "label": "First Step",
+        "agentId": null,
+        "promptTemplateId": "custom",
+        "variableBindings": [],
+        "status": "idle"
+      },
+      "measured": {
+        "width": 200,
+        "height": 73
+      }
+    },
+    {
+      "id": "prompt-2",
+      "type": "promptBlock",
+      "position": {
+        "x": 690,
+        "y": 160
+      },
+      "data": {
+        "label": "Refine",
+        "agentId": null,
+        "promptTemplateId": "custom",
+        "variableBindings": [],
+        "status": "idle"
+      },
+      "measured": {
+        "width": 200,
+        "height": 73
+      }
+    },
+    {
+      "id": "output-1",
+      "type": "output",
+      "position": {
+        "x": 970,
+        "y": 160
+      },
+      "data": {
+        "label": "Output",
+        "results": [],
+        "status": "idle"
+      },
+      "measured": {
+        "width": 150,
+        "height": 95
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "start-1",
+      "target": "prompt-1",
+      "animated": true
+    },
+    {
+      "id": "e2",
+      "source": "prompt-1",
+      "target": "prompt-2",
+      "animated": true
+    },
+    {
+      "id": "e3",
+      "source": "prompt-2",
+      "target": "output-1",
+      "animated": true
+    }
+  ],
+  "updatedAt": "2026-02-04T02:43:58.545584"
+}

@@ -1,0 +1,106 @@
+{
+  "name": "Untitled Workflow",
+  "description": "Imported from PlantUML",
+  "templateId": "simple-chain",
+  "nodes": [
+    {
+      "id": "workflowStart-start-1",
+      "type": "workflowStart",
+      "position": {
+        "x": 50,
+        "y": 200
+      },
+      "data": {
+        "label": "Start",
+        "status": "idle"
+      },
+      "measured": {
+        "width": 280,
+        "height": 180
+      }
+    },
+    {
+      "id": "httpRequest-fetch-data-2",
+      "type": "httpRequest",
+      "position": {
+        "x": 350,
+        "y": 200
+      },
+      "data": {
+        "label": "Fetch Data",
+        "method": "GET",
+        "url": "https://api.example.com/data",
+        "headers": {},
+        "body": null,
+        "status": "idle"
+      },
+      "measured": {
+        "width": 200,
+        "height": 76
+      }
+    },
+    {
+      "id": "promptBlock-process-response-3",
+      "type": "promptBlock",
+      "position": {
+        "x": 650,
+        "y": 200
+      },
+      "data": {
+        "label": "Process Response",
+        "agentId": null,
+        "promptTemplateId": "data-processor",
+        "variableBindings": [
+          {
+            "variableName": "response",
+            "source": "upstream"
+          }
+        ],
+        "status": "idle"
+      },
+      "measured": {
+        "width": 200,
+        "height": 73
+      }
+    },
+    {
+      "id": "output-end-4",
+      "type": "output",
+      "position": {
+        "x": 950,
+        "y": 200
+      },
+      "data": {
+        "label": "End",
+        "results": [],
+        "status": "idle"
+      },
+      "measured": {
+        "width": 150,
+        "height": 95
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "workflowStart-start-1",
+      "target": "httpRequest-fetch-data-2",
+      "animated": true
+    },
+    {
+      "id": "e2",
+      "source": "httpRequest-fetch-data-2",
+      "target": "promptBlock-process-response-3",
+      "animated": true
+    },
+    {
+      "id": "e3",
+      "source": "promptBlock-process-response-3",
+      "target": "output-end-4",
+      "animated": true
+    }
+  ],
+  "createdAt": "2026-02-04T04:15:44.230084",
+  "updatedAt": "2026-02-04T04:15:44.230084"
+}
