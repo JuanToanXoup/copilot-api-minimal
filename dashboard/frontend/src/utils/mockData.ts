@@ -474,25 +474,21 @@ export const mockPromptMetrics: PromptMetrics[] = [
   },
 ];
 
-// Initialize store with mock data
+// Initialize mock store with mock data (for Mock-Monitor tab)
 export function initializeMockData(store: {
-  setInstances: (instances: Instance[]) => void;
-  setTasks: (tasks: TaskQueues) => void;
-  setFailures: (failures: FailureState[]) => void;
-  addEvent: (event: OrchestratorEvent) => void;
-  setPromptMetrics: (metrics: PromptMetrics[]) => void;
-  setViewMode: (mode: 'workflow' | 'monitoring') => void;
+  setMockInstances: (instances: Instance[]) => void;
+  setMockTasks: (tasks: TaskQueues) => void;
+  setMockFailures: (failures: FailureState[]) => void;
+  addMockEvent: (event: OrchestratorEvent) => void;
+  setMockPromptMetrics: (metrics: PromptMetrics[]) => void;
 }) {
-  store.setInstances(mockInstances);
-  store.setTasks(mockTasks);
-  store.setFailures(mockFailures);
-  store.setPromptMetrics(mockPromptMetrics);
+  store.setMockInstances(mockInstances);
+  store.setMockTasks(mockTasks);
+  store.setMockFailures(mockFailures);
+  store.setMockPromptMetrics(mockPromptMetrics);
 
   // Add events in reverse order (oldest first) so newest appears at top
   [...mockEvents].reverse().forEach((event) => {
-    store.addEvent(event);
+    store.addMockEvent(event);
   });
-
-  // Switch to monitoring mode to show the data
-  store.setViewMode('monitoring');
 }

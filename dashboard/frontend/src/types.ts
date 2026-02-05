@@ -137,7 +137,7 @@ export interface PromptMetrics {
 }
 
 // View Mode
-export type ViewMode = 'prompts' | 'workflow' | 'monitoring' | 'agents';
+export type ViewMode = 'prompts' | 'workflow' | 'monitoring' | 'mock-monitoring' | 'agents';
 
 // =====================
 // Prompt Registry (Postman Flows Pattern)

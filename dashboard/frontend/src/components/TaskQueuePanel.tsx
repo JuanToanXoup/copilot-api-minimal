@@ -111,8 +111,14 @@ function TaskCard({ task }: TaskCardProps) {
   );
 }
 
-export default function TaskQueuePanel() {
-  const { tasks } = useStore();
+interface TaskQueuePanelProps {
+  /** Optional: provide tasks directly instead of reading from store */
+  tasks?: { inbound: Task[]; work: Task[]; result: Task[] };
+}
+
+export default function TaskQueuePanel({ tasks: tasksProp }: TaskQueuePanelProps = {}) {
+  const storeTasks = useStore((s) => s.tasks);
+  const tasks = tasksProp ?? storeTasks;
   const [filterType, setFilterType] = useState<TaskType | 'all'>('all');
   const [filterFailureId, setFilterFailureId] = useState('');
 

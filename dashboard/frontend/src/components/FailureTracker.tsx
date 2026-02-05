@@ -194,10 +194,28 @@ function FailureRow({ failure, isSelected, onSelect, onRetry, onEscalate }: Fail
 interface FailureTrackerProps {
   onRetry?: (failureId: string) => void;
   onEscalate?: (failureId: string) => void;
+  /** Optional: provide failures directly instead of reading from store */
+  failures?: FailureState[];
+  /** Optional: provide selectedFailureId directly instead of reading from store */
+  selectedFailureId?: string | null;
+  /** Optional: provide setSelectedFailureId directly instead of reading from store */
+  onSelectFailure?: (id: string | null) => void;
 }
 
-export default function FailureTracker({ onRetry, onEscalate }: FailureTrackerProps) {
-  const { failures, selectedFailureId, setSelectedFailureId } = useStore();
+export default function FailureTracker({
+  onRetry,
+  onEscalate,
+  failures: failuresProp,
+  selectedFailureId: selectedFailureIdProp,
+  onSelectFailure,
+}: FailureTrackerProps) {
+  const storeFailures = useStore((s) => s.failures);
+  const storeSelectedFailureId = useStore((s) => s.selectedFailureId);
+  const storeSetSelectedFailureId = useStore((s) => s.setSelectedFailureId);
+
+  const failures = failuresProp ?? storeFailures;
+  const selectedFailureId = selectedFailureIdProp !== undefined ? selectedFailureIdProp : storeSelectedFailureId;
+  const setSelectedFailureId = onSelectFailure ?? storeSetSelectedFailureId;
 
   // Group failures by status
   const processing = failures.filter((f) => f.status === 'processing');

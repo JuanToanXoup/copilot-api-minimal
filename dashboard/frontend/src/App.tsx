@@ -33,6 +33,7 @@ import ToastContainer from './components/Toast';
 import BlockEditor from './components/BlockEditor';
 import ViewModeToggle from './components/ViewModeToggle';
 import MonitoringLayout from './components/MonitoringLayout';
+import MockMonitoringLayout from './components/MockMonitoringLayout';
 import PromptsTab from './components/PromptsTab';
 import ProjectSelector from './components/ProjectSelector';
 import { useStore } from './store';
@@ -72,29 +73,28 @@ function AppContent() {
     connected,
     addToast,
     viewMode,
-    setViewMode,
-    setInstances,
-    setTasks,
-    setFailures,
-    addEvent,
-    setPromptMetrics,
     setPromptTemplates,
     activeProjectPath,
+    // Mock data setters
+    setMockInstances,
+    setMockTasks,
+    setMockFailures,
+    addMockEvent,
+    setMockPromptMetrics,
   } = useStore();
 
-  // Initialize mock data on mount (for demo purposes)
+  // Initialize mock data on mount (for Mock-Monitor tab)
   // Use a ref to prevent double-initialization in React Strict Mode
   const mockDataInitialized = useRef(false);
   useEffect(() => {
     if (mockDataInitialized.current) return;
     mockDataInitialized.current = true;
     initializeMockData({
-      setInstances,
-      setTasks,
-      setFailures,
-      addEvent,
-      setPromptMetrics,
-      setViewMode,
+      setMockInstances,
+      setMockTasks,
+      setMockFailures,
+      addMockEvent,
+      setMockPromptMetrics,
     });
   }, []);
 
@@ -334,8 +334,17 @@ function AppContent() {
         )}
 
         {viewMode === 'monitoring' && (
-          /* Monitoring Mode */
+          /* Monitoring Mode - Real Data */
           <MonitoringLayout
+            onSpawnInstance={handleSpawnInstance}
+            onRetryFailure={handleRetryFailure}
+            onEscalateFailure={handleEscalateFailure}
+          />
+        )}
+
+        {viewMode === 'mock-monitoring' && (
+          /* Mock Monitoring Mode - Mock Data */
+          <MockMonitoringLayout
             onSpawnInstance={handleSpawnInstance}
             onRetryFailure={handleRetryFailure}
             onEscalateFailure={handleEscalateFailure}

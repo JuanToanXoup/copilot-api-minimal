@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { GitBranch, Activity, Server, FileText } from 'lucide-react';
+import { GitBranch, Activity, Server, FileText, FlaskConical } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '../store';
 import type { ViewMode } from '../types';
@@ -32,16 +32,22 @@ const viewModeOptions: ViewModeOption[] = [
   },
   {
     mode: 'monitoring',
-    label: 'Monitoring',
+    label: 'Monitor',
     icon: Activity,
-    description: 'Monitor self-healing tests',
+    description: 'Monitor self-healing tests (real data)',
+  },
+  {
+    mode: 'mock-monitoring',
+    label: 'Mock-Monitor',
+    icon: FlaskConical,
+    description: 'Monitor with mock data for testing',
   },
 ];
 
 export default function ViewModeToggle() {
   const { viewMode, setViewMode } = useStore();
 
-  // Keyboard shortcuts: Cmd/Ctrl + 1/2/3/4
+  // Keyboard shortcuts: Cmd/Ctrl + 1/2/3/4/5
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) {
@@ -57,6 +63,9 @@ export default function ViewModeToggle() {
         } else if (e.key === '4') {
           e.preventDefault();
           setViewMode('monitoring');
+        } else if (e.key === '5') {
+          e.preventDefault();
+          setViewMode('mock-monitoring');
         }
       }
     };

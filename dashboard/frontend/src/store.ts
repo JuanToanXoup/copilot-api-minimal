@@ -146,6 +146,25 @@ interface Store {
   // Prompt Metrics
   promptMetrics: PromptMetrics[];
   setPromptMetrics: (metrics: PromptMetrics[]) => void;
+
+  // =====================
+  // Mock Data State (for Mock-Monitor tab)
+  // =====================
+  mockInstances: Instance[];
+  setMockInstances: (instances: Instance[]) => void;
+  mockTasks: TaskQueues;
+  setMockTasks: (tasks: TaskQueues) => void;
+  mockFailures: FailureState[];
+  setMockFailures: (failures: FailureState[]) => void;
+  mockSelectedFailureId: string | null;
+  setMockSelectedFailureId: (id: string | null) => void;
+  mockEvents: OrchestratorEvent[];
+  addMockEvent: (event: OrchestratorEvent) => void;
+  clearMockEvents: () => void;
+  mockEventsPaused: boolean;
+  setMockEventsPaused: (paused: boolean) => void;
+  mockPromptMetrics: PromptMetrics[];
+  setMockPromptMetrics: (metrics: PromptMetrics[]) => void;
 }
 
 let toastIdCounter = 0;
@@ -263,4 +282,33 @@ export const useStore = create<Store>((set, get) => ({
   // Prompt Metrics
   promptMetrics: [],
   setPromptMetrics: (metrics) => set({ promptMetrics: metrics }),
+
+  // =====================
+  // Mock Data State (for Mock-Monitor tab)
+  // =====================
+  mockInstances: [],
+  setMockInstances: (instances) => set({ mockInstances: instances }),
+
+  mockTasks: { inbound: [], work: [], result: [] },
+  setMockTasks: (tasks) => set({ mockTasks: tasks }),
+
+  mockFailures: [],
+  setMockFailures: (failures) => set({ mockFailures: failures }),
+  mockSelectedFailureId: null,
+  setMockSelectedFailureId: (id) => set({ mockSelectedFailureId: id }),
+
+  mockEvents: [],
+  addMockEvent: (event) => set((state) => {
+    if (state.mockEventsPaused) return state;
+    if (state.mockEvents.some((e) => e.id === event.id)) return state;
+    return {
+      mockEvents: [event, ...state.mockEvents].slice(0, 200),
+    };
+  }),
+  clearMockEvents: () => set({ mockEvents: [] }),
+  mockEventsPaused: false,
+  setMockEventsPaused: (paused) => set({ mockEventsPaused: paused }),
+
+  mockPromptMetrics: [],
+  setMockPromptMetrics: (metrics) => set({ mockPromptMetrics: metrics }),
 }));

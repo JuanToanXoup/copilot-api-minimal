@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Radio, Pause, Play, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '../store';
-import type { OrchestratorEventType } from '../types';
+import type { OrchestratorEventType, OrchestratorEvent } from '../types';
 import {
   getEventTypeConfig,
   formatEventTimestamp,
@@ -11,8 +11,33 @@ import {
   type EventFilterCategory,
 } from '../utils/eventConfig';
 
-export default function EventStream() {
-  const { events, eventsPaused, setEventsPaused, clearEvents } = useStore();
+interface EventStreamProps {
+  /** Optional: provide events directly instead of reading from store */
+  events?: OrchestratorEvent[];
+  /** Optional: provide eventsPaused state */
+  eventsPaused?: boolean;
+  /** Optional: provide setEventsPaused function */
+  onSetEventsPaused?: (paused: boolean) => void;
+  /** Optional: provide clearEvents function */
+  onClearEvents?: () => void;
+}
+
+export default function EventStream({
+  events: eventsProp,
+  eventsPaused: eventsPausedProp,
+  onSetEventsPaused,
+  onClearEvents,
+}: EventStreamProps = {}) {
+  const storeEvents = useStore((s) => s.events);
+  const storeEventsPaused = useStore((s) => s.eventsPaused);
+  const storeSetEventsPaused = useStore((s) => s.setEventsPaused);
+  const storeClearEvents = useStore((s) => s.clearEvents);
+
+  const events = eventsProp ?? storeEvents;
+  const eventsPaused = eventsPausedProp !== undefined ? eventsPausedProp : storeEventsPaused;
+  const setEventsPaused = onSetEventsPaused ?? storeSetEventsPaused;
+  const clearEvents = onClearEvents ?? storeClearEvents;
+
   const [enabledFilters, setEnabledFilters] = useState<Set<EventFilterCategory>>(
     new Set(eventFilterCategories.map((c) => c.id))
   );

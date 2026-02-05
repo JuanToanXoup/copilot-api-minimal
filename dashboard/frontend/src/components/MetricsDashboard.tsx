@@ -1,6 +1,7 @@
 import { Activity, CheckCircle2, Clock, AlertTriangle, TrendingUp, Server, Zap } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '../store';
+import type { FailureState, Instance, PromptMetrics, OrchestratorEvent } from '../types';
 import { calculatePoolUtilization } from '../utils/instanceConfig';
 
 interface MetricCardProps {
@@ -126,8 +127,32 @@ function PromptPerformanceRow({ name, successRate, attempts }: PromptPerformance
   );
 }
 
-export default function MetricsDashboard() {
-  const { failures, instances, promptMetrics, events } = useStore();
+interface MetricsDashboardProps {
+  /** Optional: provide failures directly instead of reading from store */
+  failures?: FailureState[];
+  /** Optional: provide instances directly instead of reading from store */
+  instances?: Instance[];
+  /** Optional: provide promptMetrics directly instead of reading from store */
+  promptMetrics?: PromptMetrics[];
+  /** Optional: provide events directly instead of reading from store */
+  events?: OrchestratorEvent[];
+}
+
+export default function MetricsDashboard({
+  failures: failuresProp,
+  instances: instancesProp,
+  promptMetrics: promptMetricsProp,
+  events: eventsProp,
+}: MetricsDashboardProps = {}) {
+  const storeFailures = useStore((s) => s.failures);
+  const storeInstances = useStore((s) => s.instances);
+  const storePromptMetrics = useStore((s) => s.promptMetrics);
+  const storeEvents = useStore((s) => s.events);
+
+  const failures = failuresProp ?? storeFailures;
+  const instances = instancesProp ?? storeInstances;
+  const promptMetrics = promptMetricsProp ?? storePromptMetrics;
+  const events = eventsProp ?? storeEvents;
   const poolUtilization = calculatePoolUtilization(instances);
 
   // Calculate failure metrics

@@ -1,6 +1,7 @@
 import { Plus, Server } from 'lucide-react';
 import clsx from 'clsx';
 import { useStore } from '../store';
+import type { Instance } from '../types';
 import {
   getInstanceStatusConfig,
   formatInstanceUptime,
@@ -10,10 +11,13 @@ import {
 
 interface InstancePoolPanelProps {
   onSpawnInstance?: () => void;
+  /** Optional: provide instances directly instead of reading from store */
+  instances?: Instance[];
 }
 
-export default function InstancePoolPanel({ onSpawnInstance }: InstancePoolPanelProps) {
-  const { instances } = useStore();
+export default function InstancePoolPanel({ onSpawnInstance, instances: instancesProp }: InstancePoolPanelProps) {
+  const storeInstances = useStore((s) => s.instances);
+  const instances = instancesProp ?? storeInstances;
   const utilization = calculatePoolUtilization(instances);
 
   // Filter out terminated instances for display
