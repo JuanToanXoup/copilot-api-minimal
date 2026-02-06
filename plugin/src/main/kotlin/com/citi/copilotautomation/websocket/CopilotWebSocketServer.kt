@@ -229,12 +229,8 @@ class CopilotWebSocketServer(
                 return ResponseBuilder.executing("copilotPrompt", port,
                     "Agent busy — delegating to sibling on port $siblingPort")
             }
-
-            // No free sibling right now — wait for one in the background
-            LOG.info("Agent busy, no free sibling — queuing wait for available sibling")
-            workerExecutor.submit { waitAndDelegateOrQueue(prompt, conn) }
-            return ResponseBuilder.executing("copilotPrompt", port,
-                "Agent busy — waiting for a free sibling agent")
+            // No free sibling — queue locally, will execute when current prompt finishes
+            LOG.info("Agent busy, no free sibling — queuing locally")
         }
 
         val wasEmpty = promptQueue.isEmpty()
@@ -314,27 +310,6 @@ class CopilotWebSocketServer(
             sendMessageSafely(conn, ResponseBuilder.error("copilotPrompt", port,
                 "Delegation to sibling on port $siblingPort failed: ${e.message}"))
         }
-    }
-
-    /**
-     * Poll the registry until a sibling becomes free, then delegate.
-     * Falls back to local queue if timeout expires.
-     */
-    private fun waitAndDelegateOrQueue(prompt: String, conn: WebSocket) {
-        val deadline = System.currentTimeMillis() + ServerConfig.BUSY_WAIT_TIMEOUT_MS
-
-        while (System.currentTimeMillis() < deadline) {
-            val siblingPort = findFreeSiblingPort()
-            if (siblingPort != null) {
-                LOG.info("Free sibling found on port $siblingPort — delegating")
-                delegatePromptToSibling(siblingPort, prompt, conn)
-                return
-            }
-            Thread.sleep(ServerConfig.BUSY_POLL_INTERVAL_MS)
-        }
-
-        LOG.warn("No free sibling found within timeout — queuing locally")
-        promptQueue.offer(mapOf("prompt" to prompt, "conn" to conn))
     }
 
     private fun executeCopilotPrompt(prompt: String): String {
