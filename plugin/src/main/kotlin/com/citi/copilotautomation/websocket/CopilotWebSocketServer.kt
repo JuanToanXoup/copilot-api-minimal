@@ -268,7 +268,7 @@ class CopilotWebSocketServer(
 
     /**
      * Find a sibling agent (same project) that is not busy.
-     * Reads busy state directly from the shared registry file.
+     * Reads busy state from the in-memory singleton shared across all plugin instances.
      */
     private fun findFreeSiblingPort(): Int? {
         val myProjectPath = project.basePath ?: return null
@@ -276,7 +276,7 @@ class CopilotWebSocketServer(
 
         for ((id, entry) in siblings) {
             if (id == instanceId || entry.port == port) continue
-            if (entry.busy) continue
+            if (PortRegistry.isBusy(id)) continue
             if (!isPortResponding(entry.port)) continue
             return entry.port
         }

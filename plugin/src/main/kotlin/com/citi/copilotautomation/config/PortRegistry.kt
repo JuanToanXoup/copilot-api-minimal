@@ -23,6 +23,7 @@ object PortRegistry {
     private const val REGISTRY_FILE = "registry.json"
 
     private val lock = ReentrantReadWriteLock()
+    private val busyState = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
     data class PortEntry(
         val projectPath: String,
@@ -33,8 +34,7 @@ object PortRegistry {
         val pid: Long? = null,  // Process ID for identifying the IDE instance
         val role: String? = null,  // Agent role: "coder", "tester", "reviewer", "docs", etc.
         val capabilities: List<String>? = null,  // Skills: ["kotlin", "python", "testing", "refactoring"]
-        val systemPrompt: String? = null,  // Custom system prompt for this agent's behavior
-        val busy: Boolean = false  // Whether this agent is currently processing a prompt
+        val systemPrompt: String? = null  // Custom system prompt for this agent's behavior
     )
 
     private fun getRegistryPath(): Path {
@@ -196,21 +196,17 @@ object PortRegistry {
     }
 
     /**
-     * Update busy state for an instance.
+     * Update busy state for an instance (in-memory only, shared across all plugin instances in the JVM).
      */
     fun setBusy(instanceId: String, busy: Boolean) {
-        try {
-            lock.write {
-                val registry = readRegistry()
-                val existing = registry[instanceId]
-                if (existing != null) {
-                    registry[instanceId] = existing.copy(busy = busy)
-                    writeRegistry(registry)
-                }
-            }
-        } catch (e: Exception) {
-            LOG.warn("[PortRegistry] Error setting busy for instance $instanceId: ${e.message}")
-        }
+        busyState[instanceId] = busy
+    }
+
+    /**
+     * Check if an instance is busy.
+     */
+    fun isBusy(instanceId: String): Boolean {
+        return busyState[instanceId] ?: false
     }
 
     /**
