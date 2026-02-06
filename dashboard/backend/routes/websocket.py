@@ -4,6 +4,7 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from config import BUSY_WAIT_TIMEOUT
 from services import AgentManager, BroadcastService, SpawnerService
 
 router = APIRouter(tags=["websocket"])
@@ -67,7 +68,8 @@ async def _handle_send_prompt(websocket: WebSocket, message: dict) -> None:
     """Handle send_prompt message.
 
     If the target agent is busy, automatically hands off to another
-    available agent with the same project context.
+    available agent with the same project context.  If all agents for
+    that project are busy, waits until one becomes free.
     """
     instance_id = message.get("instance_id")
     prompt = message.get("prompt")
@@ -80,14 +82,25 @@ async def _handle_send_prompt(websocket: WebSocket, message: dict) -> None:
     if not conn:
         return
 
-    # If target agent is busy, try to find a free agent with the same project
+    # If target agent is busy, try to find or wait for a free agent
     actual_instance_id = instance_id
     if conn.is_busy():
         project_path = conn.entry.get("projectPath", "")
-        alt_conn = _agent_manager.get_available_agent_for_project(project_path)
+        alt_conn = await _agent_manager.wait_for_available_agent(project_path)
         if alt_conn:
             conn = alt_conn
             actual_instance_id = alt_conn.instance_id
+        else:
+            # Timed out waiting — report the error
+            response = {
+                "type": "prompt_result",
+                "instance_id": instance_id,
+                "result": {"error": f"All agents for this project are busy. Timed out after {BUSY_WAIT_TIMEOUT}s."},
+            }
+            if request_id:
+                response["request_id"] = request_id
+            await websocket.send_text(json.dumps(response))
+            return
 
     result = await conn.send_prompt(prompt)
     response = {
@@ -117,13 +130,21 @@ async def _handle_send_to_port(websocket: WebSocket, message: dict) -> None:
                 actual_conn = conn
                 actual_instance_id = instance_id
 
-                # If this agent is busy, try to find a free one for the same project
+                # If this agent is busy, wait for a free one for the same project
                 if conn.is_busy():
                     project_path = conn.entry.get("projectPath", "")
-                    alt_conn = _agent_manager.get_available_agent_for_project(project_path)
+                    alt_conn = await _agent_manager.wait_for_available_agent(project_path)
                     if alt_conn:
                         actual_conn = alt_conn
                         actual_instance_id = alt_conn.instance_id
+                    else:
+                        await websocket.send_text(json.dumps({
+                            "type": "prompt_result",
+                            "instance_id": instance_id,
+                            "port": port,
+                            "result": {"error": f"All agents for this project are busy. Timed out after {BUSY_WAIT_TIMEOUT}s."},
+                        }))
+                        break
 
                 result = await actual_conn.send_prompt(prompt)
                 response = {

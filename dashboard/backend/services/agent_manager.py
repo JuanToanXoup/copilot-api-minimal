@@ -13,6 +13,7 @@ from config import (
     WS_RECV_TIMEOUT,
     PROMPT_TIMEOUT,
     HEARTBEAT_PING_TIMEOUT,
+    BUSY_WAIT_TIMEOUT,
     REGISTRY_PATH,
 )
 from models import AgentState, AgentSummary, RegistryEntry
@@ -141,6 +142,11 @@ class AgentConnection:
                             await self.manager.broadcast.broadcast_agent_delta(
                                 self.instance_id, {"busy": is_busy}
                             )
+                            # Wake up anyone waiting for a free agent on this project
+                            if not is_busy:
+                                project_path = self.entry.get("projectPath", "")
+                                if project_path:
+                                    self.manager.notify_agent_free(project_path)
 
                     elif msg_type == "copilotPromptResult":
                         self.manager.broadcast.log_activity(
@@ -253,6 +259,8 @@ class AgentManager:
         self.broadcast = broadcast
         self.agents: dict[str, AgentState] = {}
         self.connections: dict[str, AgentConnection] = {}
+        # Events keyed by project_path, set when any agent for that project becomes free
+        self._agent_free_events: dict[str, asyncio.Event] = {}
 
     def read_registry(self) -> dict[str, RegistryEntry]:
         """Read the centralized registry."""
@@ -320,6 +328,52 @@ class AgentManager:
                         and not agent_state.get("busy", False)):
                     return conn
         return None
+
+    def notify_agent_free(self, project_path: str) -> None:
+        """Signal that an agent for this project is now free.
+
+        Wakes up any coroutines waiting in wait_for_available_agent.
+        """
+        event = self._agent_free_events.get(project_path)
+        if event:
+            event.set()
+
+    async def wait_for_available_agent(
+        self, project_path: str, timeout: float = BUSY_WAIT_TIMEOUT
+    ) -> Optional[AgentConnection]:
+        """Wait until an agent for the given project becomes available.
+
+        Returns the free agent connection, or None if the timeout expires.
+        """
+        # Check immediately first
+        conn = self.get_available_agent_for_project(project_path)
+        if conn:
+            return conn
+
+        # Set up an event for this project path
+        if project_path not in self._agent_free_events:
+            self._agent_free_events[project_path] = asyncio.Event()
+        event = self._agent_free_events[project_path]
+        event.clear()
+
+        # Wait in a loop — the event fires when *any* agent for this project
+        # becomes free, but another waiter may grab it first, so re-check.
+        deadline = asyncio.get_event_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return None
+
+            try:
+                await asyncio.wait_for(event.wait(), timeout=remaining)
+            except asyncio.TimeoutError:
+                return None
+
+            event.clear()
+            conn = self.get_available_agent_for_project(project_path)
+            if conn:
+                return conn
+            # Another waiter grabbed it — loop and wait again
 
     async def connect_agent(self, instance_id: str, entry: RegistryEntry) -> bool:
         """Create and connect to an agent."""
