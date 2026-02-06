@@ -36,7 +36,9 @@ export default function AgentSelector({
           'w-full px-2 py-1.5 rounded text-sm font-medium nodrag',
           'border focus:outline-none focus:ring-2 focus:ring-indigo-400',
           selectedAgent?.connected
-            ? 'bg-green-50 border-green-300 text-green-700'
+            ? selectedAgent.busy
+              ? 'bg-blue-50 border-blue-300 text-blue-700'
+              : 'bg-green-50 border-green-300 text-green-700'
             : selectedAgentId
               ? 'bg-amber-50 border-amber-300 text-amber-700'
               : 'bg-white border-slate-200 text-slate-600'
@@ -46,7 +48,7 @@ export default function AgentSelector({
         {agents.map((agent) => (
           <option key={agent.instance_id} value={agent.instance_id}>
             :{agent.port} - {getAgentDisplayName(agent)}
-            {!agent.connected && ' (disconnected)'}
+            {!agent.connected ? ' (disconnected)' : agent.busy ? ' (busy)' : ''}
           </option>
         ))}
       </select>

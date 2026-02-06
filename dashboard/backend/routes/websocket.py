@@ -64,7 +64,11 @@ async def _handle_message(websocket: WebSocket, message: dict) -> None:
 
 
 async def _handle_send_prompt(websocket: WebSocket, message: dict) -> None:
-    """Handle send_prompt message."""
+    """Handle send_prompt message.
+
+    If the target agent is busy, automatically hands off to another
+    available agent with the same project context.
+    """
     instance_id = message.get("instance_id")
     prompt = message.get("prompt")
     request_id = message.get("request_id")
@@ -76,12 +80,23 @@ async def _handle_send_prompt(websocket: WebSocket, message: dict) -> None:
     if not conn:
         return
 
+    # If target agent is busy, try to find a free agent with the same project
+    actual_instance_id = instance_id
+    if conn.is_busy():
+        project_path = conn.entry.get("projectPath", "")
+        alt_conn = _agent_manager.get_available_agent_for_project(project_path)
+        if alt_conn:
+            conn = alt_conn
+            actual_instance_id = alt_conn.instance_id
+
     result = await conn.send_prompt(prompt)
     response = {
         "type": "prompt_result",
-        "instance_id": instance_id,
+        "instance_id": actual_instance_id,
         "result": result,
     }
+    if actual_instance_id != instance_id:
+        response["handed_off_from"] = instance_id
     if request_id:
         response["request_id"] = request_id
 
@@ -99,13 +114,27 @@ async def _handle_send_to_port(websocket: WebSocket, message: dict) -> None:
     for instance_id, conn in _agent_manager.connections.items():
         if conn.entry.get("port") == port:
             if _agent_manager.agents.get(instance_id, {}).get("connected"):
-                result = await conn.send_prompt(prompt)
-                await websocket.send_text(json.dumps({
+                actual_conn = conn
+                actual_instance_id = instance_id
+
+                # If this agent is busy, try to find a free one for the same project
+                if conn.is_busy():
+                    project_path = conn.entry.get("projectPath", "")
+                    alt_conn = _agent_manager.get_available_agent_for_project(project_path)
+                    if alt_conn:
+                        actual_conn = alt_conn
+                        actual_instance_id = alt_conn.instance_id
+
+                result = await actual_conn.send_prompt(prompt)
+                response = {
                     "type": "prompt_result",
-                    "instance_id": instance_id,
-                    "port": port,
+                    "instance_id": actual_instance_id,
+                    "port": actual_conn.port,
                     "result": result,
-                }))
+                }
+                if actual_instance_id != instance_id:
+                    response["handed_off_from"] = instance_id
+                await websocket.send_text(json.dumps(response))
                 break
 
 

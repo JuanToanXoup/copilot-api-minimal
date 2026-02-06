@@ -12,6 +12,7 @@ class AgentState(TypedDict, total=False):
     config: dict
     last_heartbeat: Optional[str]
     health: HealthStatus
+    busy: bool
 
 
 class AgentSummary(TypedDict):
@@ -24,6 +25,7 @@ class AgentSummary(TypedDict):
     connected: bool
     last_heartbeat: Optional[str]
     health: HealthStatus
+    busy: bool
 
 
 class RegistryEntry(TypedDict, total=False):

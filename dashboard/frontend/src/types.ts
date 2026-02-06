@@ -9,6 +9,7 @@ export interface Agent {
   connected: boolean;
   last_heartbeat?: string;
   health?: AgentHealth;
+  busy?: boolean;
 }
 
 export interface ActivityEvent {

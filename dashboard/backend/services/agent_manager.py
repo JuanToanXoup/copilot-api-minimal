@@ -57,6 +57,7 @@ class AgentConnection:
                 "config": config,
                 "last_heartbeat": now,
                 "health": "healthy",
+                "busy": False,
             }
 
             self.manager.broadcast.log_activity(
@@ -172,12 +173,26 @@ class AgentConnection:
                 "health": "disconnected",
             })
 
+    def is_busy(self) -> bool:
+        """Check if this agent is currently processing a prompt."""
+        return self.manager.agents.get(self.instance_id, {}).get("busy", False)
+
+    async def _set_busy(self, busy: bool) -> None:
+        """Update busy state and broadcast the change."""
+        if self.instance_id in self.manager.agents:
+            self.manager.agents[self.instance_id]["busy"] = busy
+            await self.manager.broadcast.broadcast_agent_delta(
+                self.instance_id, {"busy": busy}
+            )
+
     async def send_prompt(self, prompt: str) -> dict:
         """Send prompt and wait for response."""
         if not self.ws or not self.manager.agents.get(self.instance_id, {}).get("connected"):
             return {"error": "Not connected"}
 
         try:
+            await self._set_busy(True)
+
             self.manager.broadcast.log_activity(
                 "prompt_sent",
                 self.port,
@@ -202,6 +217,8 @@ class AgentConnection:
         except Exception as e:
             self._pending_responses.pop(self.instance_id, None)
             return {"error": str(e)}
+        finally:
+            await self._set_busy(False)
 
     async def send_command(self, command_type: str, timeout: float = 5.0) -> dict:
         """Send a command and wait for response."""
@@ -261,6 +278,7 @@ class AgentManager:
                 "connected": agent_state.get("connected", False),
                 "last_heartbeat": agent_state.get("last_heartbeat"),
                 "health": agent_state.get("health", "disconnected"),
+                "busy": agent_state.get("busy", False),
             })
 
         return result
@@ -283,6 +301,19 @@ class AgentManager:
             if entry.get("projectPath") == project_path:
                 conn = self.connections.get(instance_id)
                 if conn and self.agents.get(instance_id, {}).get("connected"):
+                    return conn
+        return None
+
+    def get_available_agent_for_project(self, project_path: str) -> Optional[AgentConnection]:
+        """Get a connected, non-busy agent that matches the given project path."""
+        registry = self.read_registry()
+        for instance_id, entry in registry.items():
+            if entry.get("projectPath") == project_path:
+                agent_state = self.agents.get(instance_id, {})
+                conn = self.connections.get(instance_id)
+                if (conn
+                        and agent_state.get("connected")
+                        and not agent_state.get("busy", False)):
                     return conn
         return None
 
