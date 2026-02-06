@@ -51,6 +51,7 @@ class CopilotWebSocketServer(
     }
 
     private val currentPrompt = AtomicReference<String?>(null)
+    private val busy = AtomicBoolean(false)
     private val running = AtomicBoolean(false)
     private var actualPort = 0
     @Volatile private var startupError: Exception? = null
@@ -106,6 +107,7 @@ class CopilotWebSocketServer(
             agentDetails["role"] = entry?.role
             agentDetails["capabilities"] = entry?.capabilities
             agentDetails["systemPrompt"] = entry?.systemPrompt
+            agentDetails["busy"] = busy.get()
 
             val response = ResponseBuilder.agentDetails(port, agentDetails)
             conn.send(objectMapper.writeValueAsString(response))
@@ -154,6 +156,11 @@ class CopilotWebSocketServer(
                 "newAgentSession" -> executeEdtAction(type) { CopilotChatToolWindowUtil.startNewAgentSession(project) }
                 "getCurrentPrompt" -> ResponseBuilder.success("currentPrompt", port, mapOf("currentPrompt" to getCurrentPrompt()))
                 "getPendingPrompts" -> ResponseBuilder.success("pendingPrompts", port, mapOf("pendingPrompts" to getPendingPrompts()))
+                "getStatus" -> ResponseBuilder.success("getStatus", port, mapOf(
+                    "busy" to busy.get(),
+                    "currentPrompt" to currentPrompt.get()?.take(100),
+                    "queueSize" to promptQueue.size
+                ))
                 "runCliCommand" -> handleCliCommand(request["command"] as? String ?: "")
                 "diagnoseUI" -> handleDiagnoseUI()
                 "inspectInput" -> handleInspectInput()
@@ -225,15 +232,21 @@ class CopilotWebSocketServer(
         workerExecutor.submit {
             val job = promptQueue.poll() ?: return@submit
             currentPrompt.set(job["prompt"] as? String)
+            setBusyStatus(true)
 
-            val result = executeCopilotPrompt(job["prompt"] as String)
-            val responseMsg = ResponseBuilder.promptResult(port, job["prompt"] as String, result)
+            try {
+                val result = executeCopilotPrompt(job["prompt"] as String)
+                val responseMsg = ResponseBuilder.promptResult(port, job["prompt"] as String, result)
 
-            val clientConn = job["conn"] as? WebSocket
-            sendMessageSafely(clientConn, responseMsg)
-
-            if (promptQueue.isNotEmpty()) {
-                submitWorkerTask()
+                val clientConn = job["conn"] as? WebSocket
+                sendMessageSafely(clientConn, responseMsg)
+            } finally {
+                currentPrompt.set(null)
+                if (promptQueue.isNotEmpty()) {
+                    submitWorkerTask()
+                } else {
+                    setBusyStatus(false)
+                }
             }
         }
     }
@@ -385,6 +398,8 @@ class CopilotWebSocketServer(
         return ResponseBuilder.success("shutdown", port, mapOf("message" to "Server is shutting down"))
     }
 
+    fun isBusy(): Boolean = busy.get()
+
     fun getCurrentPrompt(): String? = currentPrompt.get()
 
     fun getPendingPrompts(): List<String> {
@@ -461,6 +476,38 @@ class CopilotWebSocketServer(
                 LOG.warn("Error sending message to client: ${ex.message}")
             }
         }
+    }
+
+    /**
+     * Broadcast a message to all connected WebSocket clients.
+     */
+    private fun broadcastToAll(message: Map<String, Any?>) {
+        val msg = objectMapper.writeValueAsString(message)
+        for (conn in connectionIds.keys) {
+            try {
+                if (conn.isOpen) {
+                    conn.send(msg)
+                }
+            } catch (ex: Exception) {
+                LOG.warn("Error broadcasting to client: ${ex.message}")
+            }
+        }
+    }
+
+    /**
+     * Update busy state and broadcast the change to all connected clients.
+     */
+    private fun setBusyStatus(isBusy: Boolean) {
+        busy.set(isBusy)
+        broadcastToAll(mapOf(
+            "type" to "busy_status",
+            "busy" to isBusy,
+            "port" to port,
+            "instanceId" to instanceId,
+            "currentPrompt" to if (isBusy) currentPrompt.get()?.take(100) else null,
+            "queueSize" to promptQueue.size
+        ))
+        LOG.debug("Busy status changed: $isBusy (queue size: ${promptQueue.size})")
     }
 
     private fun handleCliCommand(fullCommandString: String): Map<String, Any?> {
