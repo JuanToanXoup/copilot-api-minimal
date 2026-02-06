@@ -271,8 +271,8 @@ class CopilotWebSocketServer(
     // ==================== Busy Handoff ====================
 
     /**
-     * Find a sibling agent (same project) that is responding and not busy.
-     * Returns the port number, or null if none is available.
+     * Find a sibling agent (same project) that is not busy.
+     * Reads busy state directly from the shared registry file.
      */
     private fun findFreeSiblingPort(): Int? {
         val myProjectPath = project.basePath ?: return null
@@ -280,28 +280,9 @@ class CopilotWebSocketServer(
 
         for ((id, entry) in siblings) {
             if (id == instanceId || entry.port == port) continue
+            if (entry.busy) continue
             if (!isPortResponding(entry.port)) continue
-
-            // Ask the sibling if it's busy via getStatus
-            try {
-                val statusHolder = CompletableFuture<Map<String, Any?>>()
-                val client = DelegationClient(
-                    uri = java.net.URI("ws://localhost:${entry.port}"),
-                    messageType = "getStatus",
-                    prompt = "",
-                    resultHolder = statusHolder,
-                    objectMapper = objectMapper,
-                    logger = LOG
-                )
-                client.connectBlocking(5, TimeUnit.SECONDS)
-                val status = statusHolder.get(5, TimeUnit.SECONDS)
-                val isBusy = status["busy"] as? Boolean ?: true
-                if (!isBusy) {
-                    return entry.port
-                }
-            } catch (e: Exception) {
-                LOG.debug("Could not check status of sibling on port ${entry.port}: ${e.message}")
-            }
+            return entry.port
         }
         return null
     }
@@ -336,92 +317,24 @@ class CopilotWebSocketServer(
     }
 
     /**
-     * Wait for any sibling agent to announce it's free, then delegate.
-     * Connects to all busy siblings and listens for their busy_status broadcast.
+     * Poll the registry until a sibling becomes free, then delegate.
      * Falls back to local queue if timeout expires.
      */
     private fun waitAndDelegateOrQueue(prompt: String, conn: WebSocket) {
-        val myProjectPath = project.basePath
-        if (myProjectPath == null) {
-            LOG.warn("No project path — queuing locally")
-            promptQueue.offer(mapOf("prompt" to prompt, "conn" to conn))
-            return
-        }
+        val deadline = System.currentTimeMillis() + ServerConfig.BUSY_WAIT_TIMEOUT_MS
 
-        val siblings = PortRegistry.getInstancesForProject(myProjectPath)
-            .filter { (id, entry) -> id != instanceId && entry.port != port && isPortResponding(entry.port) }
-
-        if (siblings.isEmpty()) {
-            LOG.warn("No reachable siblings — queuing locally")
-            promptQueue.offer(mapOf("prompt" to prompt, "conn" to conn))
-            return
-        }
-
-        // CompletableFuture completes with the port of the first sibling to become free
-        val freePort = CompletableFuture<Int>()
-        val listeners = mutableListOf<org.java_websocket.client.WebSocketClient>()
-
-        for ((_, entry) in siblings) {
-            val listener = object : org.java_websocket.client.WebSocketClient(
-                java.net.URI("ws://localhost:${entry.port}")
-            ) {
-                private var receivedConfig = false
-
-                override fun onOpen(handshakedata: org.java_websocket.handshake.ServerHandshake) {
-                    LOG.debug("Listening for busy_status on sibling port ${entry.port}")
-                }
-
-                override fun onMessage(message: String) {
-                    try {
-                        @Suppress("UNCHECKED_CAST")
-                        val data = objectMapper.readValue(message, Map::class.java) as Map<String, Any?>
-                        if (!receivedConfig) {
-                            // First message is agent_details — check if already free
-                            receivedConfig = true
-                            val details = data["details"] as? Map<*, *>
-                            val isBusy = details?.get("busy") as? Boolean ?: true
-                            if (!isBusy) {
-                                freePort.complete(entry.port)
-                            }
-                            return
-                        }
-                        if (data["type"] == "busy_status" && data["busy"] == false) {
-                            freePort.complete(entry.port)
-                        }
-                    } catch (e: Exception) {
-                        LOG.debug("Error parsing sibling message: ${e.message}")
-                    }
-                }
-
-                override fun onClose(code: Int, reason: String, remote: Boolean) {}
-                override fun onError(ex: Exception) {
-                    LOG.debug("Listener error for sibling port ${entry.port}: ${ex.message}")
-                }
+        while (System.currentTimeMillis() < deadline) {
+            val siblingPort = findFreeSiblingPort()
+            if (siblingPort != null) {
+                LOG.info("Free sibling found on port $siblingPort — delegating")
+                delegatePromptToSibling(siblingPort, prompt, conn)
+                return
             }
-            listeners.add(listener)
-            try {
-                listener.connectBlocking(5, TimeUnit.SECONDS)
-            } catch (e: Exception) {
-                LOG.debug("Failed to connect listener to sibling port ${entry.port}: ${e.message}")
-            }
+            Thread.sleep(ServerConfig.BUSY_POLL_INTERVAL_MS)
         }
 
-        try {
-            val availablePort = freePort.get(ServerConfig.BUSY_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            LOG.info("Sibling on port $availablePort became free — delegating")
-            delegatePromptToSibling(availablePort, prompt, conn)
-        } catch (e: java.util.concurrent.TimeoutException) {
-            LOG.warn("No sibling became free within timeout — queuing locally")
-            promptQueue.offer(mapOf("prompt" to prompt, "conn" to conn))
-        } catch (e: Exception) {
-            LOG.error("Error waiting for free sibling: ${e.message}", e)
-            promptQueue.offer(mapOf("prompt" to prompt, "conn" to conn))
-        } finally {
-            // Clean up all listener connections
-            listeners.forEach { listener ->
-                try { listener.close() } catch (_: Exception) {}
-            }
-        }
+        LOG.warn("No free sibling found within timeout — queuing locally")
+        promptQueue.offer(mapOf("prompt" to prompt, "conn" to conn))
     }
 
     private fun executeCopilotPrompt(prompt: String): String {
@@ -672,6 +585,7 @@ class CopilotWebSocketServer(
      */
     private fun setBusyStatus(isBusy: Boolean) {
         busy.set(isBusy)
+        PortRegistry.setBusy(instanceId, isBusy)
         broadcastToAll(mapOf(
             "type" to "busy_status",
             "busy" to isBusy,

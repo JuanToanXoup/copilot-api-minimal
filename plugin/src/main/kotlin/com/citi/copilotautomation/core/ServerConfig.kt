@@ -18,6 +18,7 @@ object ServerConfig {
 
     // Busy handoff — wait for a free sibling agent
     const val BUSY_WAIT_TIMEOUT_MS = 120_000L
+    const val BUSY_POLL_INTERVAL_MS = 2_000L
 
     // UI polling (for port display)
     const val UI_POLL_INTERVAL_MS = 500
