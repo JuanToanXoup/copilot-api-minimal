@@ -4,7 +4,6 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from config import BUSY_WAIT_TIMEOUT
 from services import AgentManager, BroadcastService, SpawnerService
 
 router = APIRouter(tags=["websocket"])
@@ -67,9 +66,8 @@ async def _handle_message(websocket: WebSocket, message: dict) -> None:
 async def _handle_send_prompt(websocket: WebSocket, message: dict) -> None:
     """Handle send_prompt message.
 
-    If the target agent is busy, automatically hands off to another
-    available agent with the same project context.  If all agents for
-    that project are busy, waits until one becomes free.
+    The plugin itself handles busy handoff — if it's busy, it will
+    find a free sibling agent with the same project and delegate.
     """
     instance_id = message.get("instance_id")
     prompt = message.get("prompt")
@@ -82,34 +80,12 @@ async def _handle_send_prompt(websocket: WebSocket, message: dict) -> None:
     if not conn:
         return
 
-    # If target agent is busy, try to find or wait for a free agent
-    actual_instance_id = instance_id
-    if conn.is_busy():
-        project_path = conn.entry.get("projectPath", "")
-        alt_conn = await _agent_manager.wait_for_available_agent(project_path)
-        if alt_conn:
-            conn = alt_conn
-            actual_instance_id = alt_conn.instance_id
-        else:
-            # Timed out waiting — report the error
-            response = {
-                "type": "prompt_result",
-                "instance_id": instance_id,
-                "result": {"error": f"All agents for this project are busy. Timed out after {BUSY_WAIT_TIMEOUT}s."},
-            }
-            if request_id:
-                response["request_id"] = request_id
-            await websocket.send_text(json.dumps(response))
-            return
-
     result = await conn.send_prompt(prompt)
     response = {
         "type": "prompt_result",
-        "instance_id": actual_instance_id,
+        "instance_id": instance_id,
         "result": result,
     }
-    if actual_instance_id != instance_id:
-        response["handed_off_from"] = instance_id
     if request_id:
         response["request_id"] = request_id
 
@@ -127,35 +103,13 @@ async def _handle_send_to_port(websocket: WebSocket, message: dict) -> None:
     for instance_id, conn in _agent_manager.connections.items():
         if conn.entry.get("port") == port:
             if _agent_manager.agents.get(instance_id, {}).get("connected"):
-                actual_conn = conn
-                actual_instance_id = instance_id
-
-                # If this agent is busy, wait for a free one for the same project
-                if conn.is_busy():
-                    project_path = conn.entry.get("projectPath", "")
-                    alt_conn = await _agent_manager.wait_for_available_agent(project_path)
-                    if alt_conn:
-                        actual_conn = alt_conn
-                        actual_instance_id = alt_conn.instance_id
-                    else:
-                        await websocket.send_text(json.dumps({
-                            "type": "prompt_result",
-                            "instance_id": instance_id,
-                            "port": port,
-                            "result": {"error": f"All agents for this project are busy. Timed out after {BUSY_WAIT_TIMEOUT}s."},
-                        }))
-                        break
-
-                result = await actual_conn.send_prompt(prompt)
-                response = {
+                result = await conn.send_prompt(prompt)
+                await websocket.send_text(json.dumps({
                     "type": "prompt_result",
-                    "instance_id": actual_instance_id,
-                    "port": actual_conn.port,
+                    "instance_id": instance_id,
+                    "port": port,
                     "result": result,
-                }
-                if actual_instance_id != instance_id:
-                    response["handed_off_from"] = instance_id
-                await websocket.send_text(json.dumps(response))
+                }))
                 break
 
 

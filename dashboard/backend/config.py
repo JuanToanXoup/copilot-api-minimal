@@ -101,7 +101,6 @@ WS_CONNECT_TIMEOUT = 5
 WS_RECV_TIMEOUT = 5
 PROMPT_TIMEOUT = 120
 HEARTBEAT_PING_TIMEOUT = 5
-BUSY_WAIT_TIMEOUT = 120  # Max time to wait for a free agent before giving up
 
 # Intervals (seconds)
 HEARTBEAT_INTERVAL = 10

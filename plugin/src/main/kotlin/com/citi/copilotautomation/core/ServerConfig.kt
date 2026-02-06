@@ -16,6 +16,10 @@ object ServerConfig {
     const val POLL_INTERVAL_MS = 250L
     const val POST_GENERATION_DELAY_MS = 1000L
 
+    // Busy handoff — wait for a free sibling agent
+    const val BUSY_WAIT_TIMEOUT_MS = 120_000L
+    const val BUSY_POLL_INTERVAL_MS = 2_000L
+
     // UI polling (for port display)
     const val UI_POLL_INTERVAL_MS = 500
     const val UI_POLL_MAX_ATTEMPTS = 40  // 40 * 500ms = 20 seconds

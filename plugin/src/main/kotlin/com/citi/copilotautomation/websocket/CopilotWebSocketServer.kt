@@ -220,6 +220,23 @@ class CopilotWebSocketServer(
             return ResponseBuilder.error("copilotPrompt", port, "Prompt cannot be empty")
         }
 
+        // If this agent is busy, try to hand off to a free sibling with the same project
+        if (busy.get()) {
+            val siblingPort = findFreeSiblingPort()
+            if (siblingPort != null) {
+                LOG.info("Agent busy — delegating prompt to sibling on port $siblingPort")
+                workerExecutor.submit { delegatePromptToSibling(siblingPort, prompt, conn) }
+                return ResponseBuilder.executing("copilotPrompt", port,
+                    "Agent busy — delegating to sibling on port $siblingPort")
+            }
+
+            // No free sibling right now — wait for one in the background
+            LOG.info("Agent busy, no free sibling — queuing wait for available sibling")
+            workerExecutor.submit { waitAndDelegateOrQueue(prompt, conn) }
+            return ResponseBuilder.executing("copilotPrompt", port,
+                "Agent busy — waiting for a free sibling agent")
+        }
+
         val wasEmpty = promptQueue.isEmpty()
         promptQueue.offer(mapOf("prompt" to prompt, "conn" to conn))
         if (wasEmpty) {
@@ -249,6 +266,95 @@ class CopilotWebSocketServer(
                 }
             }
         }
+    }
+
+    // ==================== Busy Handoff ====================
+
+    /**
+     * Find a sibling agent (same project) that is responding and not busy.
+     * Returns the port number, or null if none is available.
+     */
+    private fun findFreeSiblingPort(): Int? {
+        val myProjectPath = project.basePath ?: return null
+        val siblings = PortRegistry.getInstancesForProject(myProjectPath)
+
+        for ((id, entry) in siblings) {
+            if (id == instanceId || entry.port == port) continue
+            if (!isPortResponding(entry.port)) continue
+
+            // Ask the sibling if it's busy via getStatus
+            try {
+                val statusHolder = CompletableFuture<Map<String, Any?>>()
+                val client = DelegationClient(
+                    uri = java.net.URI("ws://localhost:${entry.port}"),
+                    messageType = "getStatus",
+                    prompt = "",
+                    resultHolder = statusHolder,
+                    objectMapper = objectMapper,
+                    logger = LOG
+                )
+                client.connectBlocking(5, TimeUnit.SECONDS)
+                val status = statusHolder.get(5, TimeUnit.SECONDS)
+                val isBusy = status["busy"] as? Boolean ?: true
+                if (!isBusy) {
+                    return entry.port
+                }
+            } catch (e: Exception) {
+                LOG.debug("Could not check status of sibling on port ${entry.port}: ${e.message}")
+            }
+        }
+        return null
+    }
+
+    /**
+     * Delegate a prompt to a sibling agent and relay the result to the original client.
+     */
+    private fun delegatePromptToSibling(siblingPort: Int, prompt: String, conn: WebSocket) {
+        try {
+            val resultHolder = CompletableFuture<Map<String, Any?>>()
+            val client = DelegationClient(
+                uri = java.net.URI("ws://localhost:$siblingPort"),
+                messageType = "copilotPrompt",
+                prompt = prompt,
+                resultHolder = resultHolder,
+                objectMapper = objectMapper,
+                logger = LOG
+            )
+            client.connectBlocking(10, TimeUnit.SECONDS)
+            val result = resultHolder.get(ServerConfig.GENERATION_COMPLETE_TIMEOUT_MS + 30_000, TimeUnit.MILLISECONDS)
+
+            // Relay the result back to the original caller, noting the handoff
+            val relayed = result.toMutableMap()
+            relayed["handedOffFrom"] = port
+            relayed["handedOffTo"] = siblingPort
+            sendMessageSafely(conn, relayed)
+        } catch (e: Exception) {
+            LOG.error("Failed to delegate prompt to sibling on port $siblingPort: ${e.message}", e)
+            sendMessageSafely(conn, ResponseBuilder.error("copilotPrompt", port,
+                "Delegation to sibling on port $siblingPort failed: ${e.message}"))
+        }
+    }
+
+    /**
+     * Wait for a free sibling agent to appear, then delegate.
+     * Falls back to local queue if timeout expires.
+     */
+    private fun waitAndDelegateOrQueue(prompt: String, conn: WebSocket) {
+        val deadline = System.currentTimeMillis() + ServerConfig.BUSY_WAIT_TIMEOUT_MS
+
+        while (System.currentTimeMillis() < deadline) {
+            val siblingPort = findFreeSiblingPort()
+            if (siblingPort != null) {
+                LOG.info("Free sibling found on port $siblingPort after waiting — delegating")
+                delegatePromptToSibling(siblingPort, prompt, conn)
+                return
+            }
+            Thread.sleep(ServerConfig.BUSY_POLL_INTERVAL_MS)
+        }
+
+        // Timeout — fall back to local queue (will execute when current prompt finishes)
+        LOG.warn("No free sibling found within timeout — queuing locally")
+        promptQueue.offer(mapOf("prompt" to prompt, "conn" to conn))
     }
 
     private fun executeCopilotPrompt(prompt: String): String {
